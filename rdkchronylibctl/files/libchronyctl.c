@@ -1,6 +1,6 @@
 /**
  * @file libchronyctl.c
- * @brief Implementation of thread-safe chronyd control library using direct protocol
+ * @brief Implementation of chronyd control library using direct protocol (thread-unsafe)
  */
 
 #include "libchronyctl.h"
@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -22,7 +21,7 @@
 
 /* --- Internal State --- */
 
-static pthread_mutex_t chronyctl_mutex = PTHREAD_MUTEX_INITIALIZER;
+// Removed: static pthread_mutex_t chronyctl_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int chronyctl_initialized = 0;
 static uint32_t chrony_sequence = 0;
 
@@ -87,7 +86,7 @@ static int connect_to_chronyd(void) {
     struct sockaddr_un local_addr;
     memset(&local_addr, 0, sizeof(local_addr));
     local_addr.sun_family = AF_UNIX;
-    snprintf(local_addr.sun_path, sizeof(local_addr.sun_path), "/var/run/chrony/chronyc.%d.sock", getpid());
+    snprintf(local_addr.sun_path, sizeof(local_addr.sun_path), "/var/run/chronyc.%d.sock", getpid());
     
     unlink(local_addr.sun_path);
     if (bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
@@ -129,18 +128,14 @@ static int connect_to_chronyd(void) {
     return -1;
 }
 
-/* 
- * Simplified packet length calculation for Chrony version 6.
- * Values taken from observation and pktlength.c logic.
- */
 static size_t get_request_length(uint16_t command) {
     switch (command) {
         case REQ_TRACKING:   return 104; // Header(20) + Data(4) + Padding(80) 
         case REQ_MAKESTEP:   return 28;  // Header(20) + Data(4) + Padding(4)
-        case REQ_ADD_SOURCE: return 520; // Observation for add server 
-        case REQ_DEL_SOURCE: return 40;  // Observation from strace (Header 20 + IPAddr 20)
-        case REQ_MODIFY_MINPOLL: return 44; // Observation from strace
-        case REQ_MODIFY_MAXPOLL: return 44; // Observation from strace
+        case REQ_ADD_SOURCE: return 520;
+        case REQ_DEL_SOURCE: return 40;
+        case REQ_MODIFY_MINPOLL: return 44;
+        case REQ_MODIFY_MAXPOLL: return 44;
         default: return sizeof(CMD_Request);
     }
 }
@@ -183,7 +178,7 @@ static int receive_reply(int sockfd, uint16_t expected_reply, void *data, size_t
     uint16_t st = ntohs(reply.status);
     if (st != STT_SUCCESS) {
         if (st == STT_UNAUTH) return CHRONYCTL_ERROR_UNAUTH;
-        if (st == STT_NOSUCHSOURCE) return CHRONYCTL_ERROR_EXEC; // Map to -3 for now but can be improved
+        if (st == STT_NOSUCHSOURCE) return CHRONYCTL_ERROR_EXEC;
         return CHRONYCTL_ERROR_EXEC;
     }
 
@@ -201,7 +196,7 @@ static int receive_reply(int sockfd, uint16_t expected_reply, void *data, size_t
 
 static void cleanup_local_socket() {
     char local_path[128];
-    snprintf(local_path, sizeof(local_path), "/var/run/chrony/chronyc.%d.sock", getpid());
+    snprintf(local_path, sizeof(local_path), "/var/run/chronyc.%d.sock", getpid());
     unlink(local_path);
     snprintf(local_path, sizeof(local_path), "/tmp/chronyc.%d.sock", getpid());
     unlink(local_path);
@@ -210,27 +205,21 @@ static void cleanup_local_socket() {
 /* --- Public API --- */
 
 int chronyctl_init(void) {
-    pthread_mutex_lock(&chronyctl_mutex);
     chronyctl_initialized = 1;
-    pthread_mutex_unlock(&chronyctl_mutex);
     return CHRONYCTL_SUCCESS;
 }
 
 int chronyctl_cleanup(void) {
-    pthread_mutex_lock(&chronyctl_mutex);
     chronyctl_initialized = 0;
-    pthread_mutex_unlock(&chronyctl_mutex);
     return CHRONYCTL_SUCCESS;
 }
 
 int chronyctl_get_offset(double *offset_sec) {
     if (!offset_sec) return CHRONYCTL_ERROR_INVALID;
-    
-    pthread_mutex_lock(&chronyctl_mutex);
-    if (!chronyctl_initialized) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NOT_INIT; }
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
     
     int sockfd = connect_to_chronyd();
-    if (sockfd < 0) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NO_DATA; }
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
     
     int ret = send_request(sockfd, REQ_TRACKING, NULL, 0);
     if (ret == 0) {
@@ -245,16 +234,14 @@ int chronyctl_get_offset(double *offset_sec) {
     
     close(sockfd);
     cleanup_local_socket();
-    pthread_mutex_unlock(&chronyctl_mutex);
     return ret;
 }
 
 int chronyctl_makestep(void) {
-    pthread_mutex_lock(&chronyctl_mutex);
-    if (!chronyctl_initialized) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NOT_INIT; }
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
     
     int sockfd = connect_to_chronyd();
-    if (sockfd < 0) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NO_DATA; }
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
     
     int ret = send_request(sockfd, REQ_MAKESTEP, NULL, 0);
     if (ret == 0) {
@@ -265,20 +252,16 @@ int chronyctl_makestep(void) {
     
     close(sockfd);
     cleanup_local_socket();
-    pthread_mutex_unlock(&chronyctl_mutex);
     return ret;
 }
 
 int chronyctl_burst(const IPAddr *addr, const IPAddr *mask, int n_good_samples, int n_total_samples)  {
     CMD_Request request;
     CMD_Reply reply;
-    
-
-    pthread_mutex_lock(&chronyctl_mutex);
-    if (!chronyctl_initialized) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NOT_INIT; }
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
     
     int sockfd = connect_to_chronyd();
-    if (sockfd < 0) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NO_DATA; }
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
 
     memset(&request, 0, sizeof(request));
     request.command = htons(REQ_BURST);
@@ -305,19 +288,16 @@ int chronyctl_burst(const IPAddr *addr, const IPAddr *mask, int n_good_samples, 
     
     close(sockfd);
     cleanup_local_socket();
-    pthread_mutex_unlock(&chronyctl_mutex);
     return ret;
 }
 
 
 int chronyctl_add_server(const char *address, int minpoll, int maxpoll) {
     if (!address) return CHRONYCTL_ERROR_INVALID;
-    
-    pthread_mutex_lock(&chronyctl_mutex);
-    if (!chronyctl_initialized) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NOT_INIT; }
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
     
     int sockfd = connect_to_chronyd();
-    if (sockfd < 0) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NO_DATA; }
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
     
     REQ_NTP_Source payload;
     memset(&payload, 0, sizeof(payload));
@@ -339,22 +319,19 @@ int chronyctl_add_server(const char *address, int minpoll, int maxpoll) {
     
     close(sockfd);
     cleanup_local_socket();
-    pthread_mutex_unlock(&chronyctl_mutex);
     return ret;
 }
 
 int chronyctl_delete_server(const char *address) {
     if (!address) return CHRONYCTL_ERROR_INVALID;
-    
-    pthread_mutex_lock(&chronyctl_mutex);
-    if (!chronyctl_initialized) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NOT_INIT; }
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
     
     int sockfd = connect_to_chronyd();
-    if (sockfd < 0) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NO_DATA; }
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
     
     IPAddr host_ip;
     if (parse_address(address, &host_ip) != 0) {
-        close(sockfd); cleanup_local_socket(); pthread_mutex_unlock(&chronyctl_mutex);
+        close(sockfd); cleanup_local_socket();
         return CHRONYCTL_ERROR_INVALID;
     }
 
@@ -371,22 +348,19 @@ int chronyctl_delete_server(const char *address) {
     
     close(sockfd);
     cleanup_local_socket();
-    pthread_mutex_unlock(&chronyctl_mutex);
     return ret;
 }
 
 int chronyctl_set_poll(const char *address, int minpoll, int maxpoll) {
     if (!address) return CHRONYCTL_ERROR_INVALID;
-    
-    pthread_mutex_lock(&chronyctl_mutex);
-    if (!chronyctl_initialized) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NOT_INIT; }
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
     
     int sockfd = connect_to_chronyd();
-    if (sockfd < 0) { pthread_mutex_unlock(&chronyctl_mutex); return CHRONYCTL_ERROR_NO_DATA; }
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
     
     IPAddr host_ip;
     if (parse_address(address, &host_ip) != 0) {
-        close(sockfd); cleanup_local_socket(); pthread_mutex_unlock(&chronyctl_mutex);
+        close(sockfd); cleanup_local_socket();
         return CHRONYCTL_ERROR_INVALID;
     }
     
@@ -405,7 +379,6 @@ int chronyctl_set_poll(const char *address, int minpoll, int maxpoll) {
     
     close(sockfd);
     cleanup_local_socket();
-    pthread_mutex_unlock(&chronyctl_mutex);
     return ret;
 }
 
