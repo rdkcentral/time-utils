@@ -204,6 +204,65 @@ static void cleanup_local_socket() {
 
 /* --- Public API --- */
 
+/*
+ * Query chronyd's live source list to find the IP address it is actually
+ * using for a given hostname.  chronyd tracks sources by the IP it resolved
+ * at add-time; using getaddrinfo() directly may return a different IP if DNS
+ * has rotated since then, causing DEL_SOURCE / MODIFY_POLL to fail with
+ * NOSUCHSOURCE.
+ *
+ * sockfd   - already-connected socket to chronyd (reused for all sub-requests)
+ * hostname - the configured hostname to look up (case-insensitive match)
+ * out_net_ip - on success, filled with the IPAddr in network byte order,
+ *              ready to embed directly in REQ_Del_Source / REQ_Modify_* payloads
+ *
+ * Returns 0 on success, -1 if the hostname is not found in chronyd's list.
+ */
+static int find_source_ip_by_name(int sockfd, const char *hostname, IPAddr *out_net_ip) {
+    /* Step 1: get number of tracked sources */
+    if (send_request(sockfd, REQ_N_SOURCES, NULL, 0) != 0)
+        return -1;
+
+    RPY_N_Sources n_rpy;
+    if (receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, sizeof(n_rpy)) != CHRONYCTL_SUCCESS)
+        return -1;
+
+    uint32_t count = ntohl(n_rpy.n_sources);
+
+    for (uint32_t i = 0; i < count; i++) {
+        /* Step 2: get IPAddr for source at index i */
+        REQ_Source_Data sd_req;
+        memset(&sd_req, 0, sizeof(sd_req));
+        sd_req.index = htonl(i);
+        if (send_request(sockfd, REQ_SOURCE_DATA, &sd_req, sizeof(sd_req)) != 0)
+            continue;
+
+        RPY_Source_Data sd_rpy;
+        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, sizeof(sd_rpy)) != CHRONYCTL_SUCCESS)
+            continue;
+
+        /* Step 3: ask chronyd for the configured hostname of this IP */
+        REQ_NTPSourceName sn_req;
+        memset(&sn_req, 0, sizeof(sn_req));
+        sn_req.ip_addr = sd_rpy.ip_addr;  /* already in network byte order from the reply */
+        if (send_request(sockfd, REQ_NTP_SOURCE_NAME, &sn_req, sizeof(sn_req)) != 0)
+            continue;
+
+        RPY_NTPSourceName sn_rpy;
+        if (receive_reply(sockfd, RPY_NTP_SOURCE_NAME, &sn_rpy, sizeof(sn_rpy)) != CHRONYCTL_SUCCESS)
+            continue;
+
+        sn_rpy.name[sizeof(sn_rpy.name) - 1] = '\0';
+        if (strncasecmp((char *)sn_rpy.name, hostname, sizeof(sn_rpy.name)) == 0) {
+            *out_net_ip = sd_rpy.ip_addr;   /* network byte order, ready for wire */
+            return 0;
+        }
+    }
+    return -1;  /* hostname not found in chronyd's live source list */
+}
+
+/* --- Public API --- */
+
 int chronyctl_init(void) {
     chronyctl_initialized = 1;
     return CHRONYCTL_SUCCESS;
@@ -325,27 +384,41 @@ int chronyctl_add_server(const char *address, int minpoll, int maxpoll) {
 int chronyctl_delete_server(const char *address) {
     if (!address) return CHRONYCTL_ERROR_INVALID;
     if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
-    
+
     int sockfd = connect_to_chronyd();
     if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
-    
-    IPAddr host_ip;
-    if (parse_address(address, &host_ip) != 0) {
-        close(sockfd); cleanup_local_socket();
-        return CHRONYCTL_ERROR_INVALID;
+
+    /*
+     * Prefer the IP that chronyd is actually tracking for this hostname over a
+     * fresh DNS lookup.  If DNS has rotated since the server was added,
+     * getaddrinfo() would return a different IP and DEL_SOURCE would fail with
+     * NOSUCHSOURCE.  find_source_ip_by_name() uses REQ_NTP_SOURCE_NAME to
+     * match the configured hostname against chronyd's live source list and
+     * returns the exact IP chronyd resolved at add-time.
+     */
+    IPAddr net_ip;
+    memset(&net_ip, 0, sizeof(net_ip));
+    if (find_source_ip_by_name(sockfd, address, &net_ip) != 0) {
+        /* Fall back to DNS resolution if hostname is not found in chronyd's list */
+        IPAddr host_ip;
+        if (parse_address(address, &host_ip) != 0) {
+            close(sockfd); cleanup_local_socket();
+            return CHRONYCTL_ERROR_INVALID;
+        }
+        ip_host_to_network(&host_ip, &net_ip);
     }
 
     REQ_Del_Source payload;
     memset(&payload, 0, sizeof(payload));
-    ip_host_to_network(&host_ip, &payload.ip_addr);
-    
+    payload.ip_addr = net_ip;
+
     int ret = send_request(sockfd, REQ_DEL_SOURCE, &payload, sizeof(payload));
     if (ret == 0) {
         ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
     } else {
         ret = CHRONYCTL_ERROR_EXEC;
     }
-    
+
     close(sockfd);
     cleanup_local_socket();
     return ret;
@@ -354,29 +427,34 @@ int chronyctl_delete_server(const char *address) {
 int chronyctl_set_poll(const char *address, int minpoll, int maxpoll) {
     if (!address) return CHRONYCTL_ERROR_INVALID;
     if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
-    
+
     int sockfd = connect_to_chronyd();
     if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
-    
-    IPAddr host_ip;
-    if (parse_address(address, &host_ip) != 0) {
-        close(sockfd); cleanup_local_socket();
-        return CHRONYCTL_ERROR_INVALID;
-    }
-    
+
+    /* Same rationale as chronyctl_delete_server: use the IP chronyd is actually
+     * tracking for this hostname rather than re-resolving via DNS. */
     IPAddr net_ip;
-    ip_host_to_network(&host_ip, &net_ip);
+    memset(&net_ip, 0, sizeof(net_ip));
+    if (find_source_ip_by_name(sockfd, address, &net_ip) != 0) {
+        /* Fall back to DNS resolution */
+        IPAddr host_ip;
+        if (parse_address(address, &host_ip) != 0) {
+            close(sockfd); cleanup_local_socket();
+            return CHRONYCTL_ERROR_INVALID;
+        }
+        ip_host_to_network(&host_ip, &net_ip);
+    }
 
     REQ_Modify_Minpoll min_payload = { .address = net_ip, .new_minpoll = htonl(minpoll) };
     int ret = send_request(sockfd, REQ_MODIFY_MINPOLL, &min_payload, sizeof(min_payload));
     if (ret == 0) ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
-    
+
     if (ret == CHRONYCTL_SUCCESS) {
         REQ_Modify_Maxpoll max_payload = { .address = net_ip, .new_maxpoll = htonl(maxpoll) };
         ret = send_request(sockfd, REQ_MODIFY_MAXPOLL, &max_payload, sizeof(max_payload));
         if (ret == 0) ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
     }
-    
+
     close(sockfd);
     cleanup_local_socket();
     return ret;
