@@ -15,7 +15,7 @@ include_HEADERS = \
 # -----------------------------------------------
 # Test binaries (not installed)
 # -----------------------------------------------
-BIN_PROGRAMS = test_chronyctl test_timectl
+bin_PROGRAMS  = test_chronyctl test_timectl
 
 # Original chrony-specific test (kept for reference)
 test_chronyctl_SOURCES = test_chronyctl.c
