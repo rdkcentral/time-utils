@@ -132,6 +132,7 @@ static size_t get_request_length(uint16_t command) {
     switch (command) {
         case REQ_TRACKING:   return 104; // Header(20) + Data(4) + Padding(80) 
         case REQ_MAKESTEP:   return 28;  // Header(20) + Data(4) + Padding(4)
+        case REQ_BURST:      return offsetof(CMD_Request, data.burst.EOR);
         case REQ_ADD_SOURCE: return 520;
         case REQ_DEL_SOURCE: return 40;
         case REQ_MODIFY_MINPOLL: return 44;
@@ -315,36 +316,29 @@ int chronyctl_makestep(void) {
 }
 
 int chronyctl_burst(const IPAddr *addr, const IPAddr *mask, int n_good_samples, int n_total_samples)  {
-    CMD_Request request;
-    CMD_Reply reply;
     if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
-    
+
     int sockfd = connect_to_chronyd();
     if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
 
-    memset(&request, 0, sizeof(request));
-    request.command = htons(REQ_BURST);
+    REQ_Burst payload;
+    memset(&payload, 0, sizeof(payload));
 
     if (addr)
-        memcpy(&request.data.burst.address, addr, sizeof(IPAddr));
-    else
-        memset(&request.data.burst.address, 0, sizeof(IPAddr));
-
+        memcpy(&payload.address, addr, sizeof(IPAddr));
     if (mask)
-        memcpy(&request.data.burst.mask, mask, sizeof(IPAddr));
-    else
-        memset(&request.data.burst.mask, 0, sizeof(IPAddr));
-    
-    request.data.burst.n_good_samples = htonl(n_good_samples);
-    request.data.burst.n_total_samples = htonl(n_total_samples);
-    
-    int ret = send_request(sockfd, REQ_ADD_SOURCE, &request, sizeof(request));
+        memcpy(&payload.mask, mask, sizeof(IPAddr));
+
+    payload.n_good_samples  = htonl(n_good_samples);
+    payload.n_total_samples = htonl(n_total_samples);
+
+    int ret = send_request(sockfd, REQ_BURST, &payload, sizeof(payload));
     if (ret == 0) {
         ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
     } else {
         ret = CHRONYCTL_ERROR_EXEC;
     }
-    
+
     close(sockfd);
     cleanup_local_socket();
     return ret;
@@ -474,3 +468,4 @@ const char* chronyctl_strerror(int err) {
         default: return "Unknown error";
     }
 }
+pi@raspb
