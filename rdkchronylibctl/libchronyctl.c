@@ -468,4 +468,3 @@ const char* chronyctl_strerror(int err) {
         default: return "Unknown error";
     }
 }
-pi@raspb
