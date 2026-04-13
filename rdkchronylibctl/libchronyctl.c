@@ -76,6 +76,14 @@ static void ip_host_to_network(const IPAddr *src, IPAddr *dest) {
     }
 }
 
+static void cleanup_local_socket() {
+    char local_path[128];
+    snprintf(local_path, sizeof(local_path), "/var/run/chronyc.%d.sock", getpid());
+    unlink(local_path);
+    snprintf(local_path, sizeof(local_path), "/tmp/chronyc.%d.sock", getpid());
+    unlink(local_path);
+}
+
 static int connect_to_chronyd(void) {
     int sockfd;
     struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
@@ -184,13 +192,6 @@ static int receive_reply(int sockfd, uint16_t expected_reply, void *data, size_t
     return CHRONYCTL_SUCCESS;
 }
 
-static void cleanup_local_socket() {
-    char local_path[128];
-    snprintf(local_path, sizeof(local_path), "/var/run/chronyc.%d.sock", getpid());
-    unlink(local_path);
-    snprintf(local_path, sizeof(local_path), "/tmp/chronyc.%d.sock", getpid());
-    unlink(local_path);
-}
 
 /* --- Public API --- */
 
