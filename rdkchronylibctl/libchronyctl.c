@@ -110,20 +110,9 @@ static int connect_to_chronyd(void) {
         }
     }
 
-    /* Fallback to UDP port 323 */
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd >= 0) {
-        struct sockaddr_in udp_addr;
-        memset(&udp_addr, 0, sizeof(udp_addr));
-        udp_addr.sin_family      = AF_INET;
-        udp_addr.sin_port        = htons(323);
-        udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-        if (connect(sockfd, (struct sockaddr *)&udp_addr, sizeof(udp_addr)) == 0) {
-            setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-            return sockfd;
-        }
-        close(sockfd);
-    }
+ /* All Unix socket paths failed — clean up and signal unreachable */
+   close(sockfd);
+   cleanup_local_socket();
 
     return -1;
 }
