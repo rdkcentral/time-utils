@@ -20,6 +20,7 @@ void print_usage(const char *progname) {
     printf("  server [host] [min] [max] - Add a server (default: time.xfinity.com 6 10)\n");
     printf("  delete_server [host]- Delete a server (default: pool.ntp.org)\n");
     printf("  offset_check       - Get current offset\n");
+    printf("  burst              - Send a burst to chronyd for extra samples\n");
 }
 
 int main(int argc, char *argv[]) {
