@@ -225,7 +225,7 @@ int main(int argc, char *argv[])
         report(ops, ret, "add_server");
 
     } else if (strcmp(cmd, "delete_server") == 0) {
-        const char *host = (argc - arg_offset > 1) ? argv[arg_offset + 1] : "pool.ntp.org";
+        const char *host = (argc - arg_offset > 1) ? argv[arg_offset + 1] : "time.xfinity.com";
         printf("  host=%s\n", host);
         ret = ops->delete_server(host);
         report(ops, ret, "delete_server");
