@@ -13,15 +13,12 @@ include_HEADERS = \
         candm.h
 
 # -----------------------------------------------
-# Test binaries (not installed)
+# Test binaries 
 # -----------------------------------------------
-bin_PROGRAMS  = test_chronyctl test_timectl
+bin_PROGRAMS  = test_timectl
 
-# Original chrony-specific test (kept for reference)
-test_chronyctl_SOURCES = test_chronyctl.c
-test_chronyctl_LDADD   = libchronyctl.la
 
 # Common NTP client test binary (single file, no extra adapter files)
 # To add a new backend: #include its header and add a row to backends[] in test_timectl.c.
-test_timectl_SOURCES = test_timectl.c
+test_timectl_SOURCES = tests/test_timectl.c
 test_timectl_LDADD   = libchronyctl.la
