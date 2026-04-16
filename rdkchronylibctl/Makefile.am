@@ -21,4 +21,5 @@ bin_PROGRAMS  = test_timectl
 # Common NTP client test binary (single file, no extra adapter files)
 # To add a new backend: #include its header and add a row to backends[] in test_timectl.c.
 test_timectl_SOURCES = ../tests/test_timectl.c
+test_timectl_CPPFLAGS = -I$(top_srcdir)/.. -I$(top_srcdir)
 test_timectl_LDADD   = libchronyctl.la
