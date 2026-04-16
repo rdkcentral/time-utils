@@ -29,7 +29,7 @@
 #include <string.h>
 
 /* --- Backend headers: add a new #include here for each NTP client --- */
-#include "libchronyctl.h"
+#include "rdkchronylibctl/libchronyctl.h"
 
 /* ------------------------------------------------------------------ */
 /* Generic NTP ops table                                              */
