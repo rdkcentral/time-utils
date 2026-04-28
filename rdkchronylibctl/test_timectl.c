@@ -47,6 +47,10 @@ typedef struct {
     int  (*set_poll)(const char *host, int minpoll, int maxpoll);
     /* burst: addr/mask NULL means all sources */
     int  (*burst)(const char *addr, const char *mask, int n_good, int n_total);
+    /* online: addr/mask NULL means all sources */
+    int  (*online)(const char *addr, const char *mask);
+    /* has_selectable_source: 1 if any source is selected/selectable */
+    int  (*has_selectable_source)(int *has_selectable);
     const char *(*strerror)(int err);
 } ntp_ops_t;
 
@@ -96,6 +100,46 @@ static int chrony_burst(const char *addr_str, const char *mask_str,
 }
 
 /* ------------------------------------------------------------------ */
+/* Chrony online wrapper: converts string addr/mask to IPAddr         */
+/* ------------------------------------------------------------------ */
+
+static int chrony_online(const char *addr_str, const char *mask_str)
+{
+    IPAddr addr_buf, mask_buf;
+    IPAddr *paddr = NULL, *pmask = NULL;
+
+    if (addr_str) {
+        struct addrinfo hints, *res;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        memset(&addr_buf, 0, sizeof(addr_buf));
+        if (getaddrinfo(addr_str, NULL, &hints, &res) == 0) {
+            addr_buf.addr.in4 = ntohl(((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr);
+            addr_buf.family   = IPADDR_INET4;
+            freeaddrinfo(res);
+            paddr = &addr_buf;
+        } else {
+            return CHRONYCTL_ERROR_INVALID;
+        }
+    }
+    if (mask_str) {
+        struct addrinfo hints, *res;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        memset(&mask_buf, 0, sizeof(mask_buf));
+        if (getaddrinfo(mask_str, NULL, &hints, &res) == 0) {
+            mask_buf.addr.in4 = ntohl(((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr);
+            mask_buf.family   = IPADDR_INET4;
+            freeaddrinfo(res);
+            pmask = &mask_buf;
+        } else {
+            return CHRONYCTL_ERROR_INVALID;
+        }
+    }
+    return chronyctl_online(paddr, pmask);
+}
+
+/* ------------------------------------------------------------------ */
 /* Backend table                                                      */
 /* Add a new row here for each NTP client.                            */
 /* ------------------------------------------------------------------ */
@@ -111,7 +155,9 @@ static const ntp_ops_t backends[] = {
         .delete_server = chronyctl_delete_server,
         .set_poll      = chronyctl_set_poll,
         .burst         = chrony_burst,
-        .strerror      = chronyctl_strerror,
+        .online                = chrony_online,
+        .has_selectable_source = chronyctl_has_selectable_source,
+        .strerror              = chronyctl_strerror,
     },
     /* Future example:
     {
@@ -167,6 +213,8 @@ static void print_usage(const char *prog)
     printf("  server [host [minpoll [maxpoll]]]        (defaults: time.xfinity.com 6 10)\n");
     printf("  delete_server [host]                     (default: pool.ntp.org)\n");
     printf("  burst [n_good [n_total [addr [mask]]]]   (defaults: 4 8 all any)\n");
+    printf("  online [addr [mask]]                     (defaults: all sources)\n");
+    printf("  selectable_check                         (check if any selectable source exists)\n");
     printf("  set_poll <host> <minpoll> <maxpoll>\n\n");
     list_backends();
 }
@@ -239,6 +287,21 @@ int main(int argc, char *argv[])
                n_good, n_total, addr ? addr : "(all)", mask ? mask : "(any)");
         ret = ops->burst(addr, mask, n_good, n_total);
         report(ops, ret, "burst");
+
+    } else if (strcmp(cmd, "online") == 0) {
+        const char *addr = (argc - arg_offset > 1) ? argv[arg_offset + 1] : NULL;
+        const char *mask = (argc - arg_offset > 2) ? argv[arg_offset + 2] : NULL;
+        printf("  addr=%s  mask=%s\n",
+               addr ? addr : "(all)", mask ? mask : "(any)");
+        ret = ops->online(addr, mask);
+        report(ops, ret, "online");
+
+    } else if (strcmp(cmd, "selectable_check") == 0) {
+        int has_sel = 0;
+        ret = ops->has_selectable_source(&has_sel);
+        report(ops, ret, "has_selectable_source");
+        if (ret == 0)
+            printf("  Selectable source available: %s\n", has_sel ? "yes" : "no");
 
     } else if (strcmp(cmd, "set_poll") == 0) {
         if (argc - arg_offset < 4) {

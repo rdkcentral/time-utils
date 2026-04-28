@@ -129,6 +129,7 @@ static size_t get_request_length(uint16_t command) {
     switch (command) {
         case REQ_TRACKING:   return 104; // Header(20) + Data(4) + Padding(80) 
         case REQ_MAKESTEP:   return 28;  // Header(20) + Data(4) + Padding(4)
+        case REQ_ONLINE:     return offsetof(CMD_Request, data.online.EOR);
         case REQ_BURST:      return offsetof(CMD_Request, data.burst.EOR);
         case REQ_ADD_SOURCE: return 520;
         case REQ_DEL_SOURCE: return 40;
@@ -305,6 +306,32 @@ int chronyctl_makestep(void) {
     return ret;
 }
 
+int chronyctl_online(const IPAddr *addr, const IPAddr *mask) {
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
+
+    int sockfd = connect_to_chronyd();
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
+
+    REQ_Online payload;
+    memset(&payload, 0, sizeof(payload));
+
+    if (addr)
+        memcpy(&payload.address, addr, sizeof(IPAddr));
+    if (mask)
+        memcpy(&payload.mask, mask, sizeof(IPAddr));
+
+    int ret = send_request(sockfd, REQ_ONLINE, &payload, sizeof(payload));
+    if (ret == 0) {
+        ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
+    } else {
+        ret = CHRONYCTL_ERROR_EXEC;
+    }
+
+    close(sockfd);
+    cleanup_local_socket();
+    return ret;
+}
+
 int chronyctl_burst(const IPAddr *addr, const IPAddr *mask, int n_good_samples, int n_total_samples)  {
     if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
 
@@ -442,6 +469,57 @@ int chronyctl_set_poll(const char *address, int minpoll, int maxpoll) {
     close(sockfd);
     cleanup_local_socket();
     return ret;
+}
+
+int chronyctl_has_selectable_source(int *has_selectable) {
+    if (!has_selectable) return CHRONYCTL_ERROR_INVALID;
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
+
+    int sockfd = connect_to_chronyd();
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
+
+    /* Step 1: get the number of sources chronyd is tracking */
+    int ret = send_request(sockfd, REQ_N_SOURCES, NULL, 0);
+    if (ret != 0) {
+        close(sockfd); cleanup_local_socket();
+        return CHRONYCTL_ERROR_EXEC;
+    }
+
+    RPY_N_Sources n_rpy;
+    ret = receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, sizeof(n_rpy));
+    if (ret != CHRONYCTL_SUCCESS) {
+        close(sockfd); cleanup_local_socket();
+        return ret;
+    }
+
+    uint32_t count = ntohl(n_rpy.n_sources);
+    *has_selectable = 0;
+
+    /* Step 2: inspect each source — mirror of 'chronyc sources -v' */
+    for (uint32_t i = 0; i < count; i++) {
+        REQ_Source_Data sd_req;
+        memset(&sd_req, 0, sizeof(sd_req));
+        sd_req.index = htonl(i);
+
+        if (send_request(sockfd, REQ_SOURCE_DATA, &sd_req, sizeof(sd_req)) != 0)
+            continue;
+
+        RPY_Source_Data sd_rpy;
+        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, sizeof(sd_rpy)) != CHRONYCTL_SUCCESS)
+            continue;
+
+        uint16_t state = ntohs(sd_rpy.state);
+        /* RPY_SD_ST_SELECTED (0) == '*' and RPY_SD_ST_SELECTABLE (5) == '+'
+           in chronyc sources -v output */
+        if (state == RPY_SD_ST_SELECTED || state == RPY_SD_ST_SELECTABLE) {
+            *has_selectable = 1;
+            break;
+        }
+    }
+
+    close(sockfd);
+    cleanup_local_socket();
+    return CHRONYCTL_SUCCESS;
 }
 
 const char* chronyctl_strerror(int err) {
