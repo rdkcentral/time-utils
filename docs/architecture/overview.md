@@ -143,46 +143,6 @@ sequenceDiagram
 - Local path falls back from `/var/run/chronyc.<pid>.sock` to `/tmp/chronyc.<pid>.sock` if the primary location is not writable
 - Receive timeout is 2 seconds; exceeding it returns `CHRONYCTL_ERROR_EXEC`
 - Local socket is always unlinked, even on error paths
-
----
-
-## Memory Management
-
-`libchronyctl` is a **stack-only** library. No heap memory is allocated or returned to the caller. All wire buffers, payloads, and reply structures live on the call stack and are released automatically when each function returns.
-
-```mermaid
-graph TD
-    A[API call entry] --> B[Stack: sockfd, CMD_Request, payload struct]
-    B --> C[connect_to_chronyd: bind local FS socket]
-    C --> D[send_request: stack CMD_Request → wire]
-    D --> E[receive_reply: stack CMD_Reply ← wire]
-    E --> F[extract result into caller-provided output pointer]
-    F --> G[close sockfd]
-    G --> H[cleanup_local_socket: unlink FS path]
-    H --> I[return — all stack frames unwound]
-```
-
-### Ownership Rules
-
-| Resource | Owner | Notes |
-|----------|-------|-------|
-| Output scalars (`double *`, `int *`) | Caller | Caller allocates; library fills on `CHRONYCTL_SUCCESS` |
-| Input strings (`const char *address`) | Caller | Library copies via `strncpy` into stack-local payload; caller retains ownership |
-| Local Unix socket path | Library | Created at call entry; unlinked before return |
-| Socket file descriptor | Library | Opened at call entry; closed before return |
-
-### Memory Budget
-
-| Resource | Max size | Lifetime |
-|----------|----------|----------|
-| `CMD_Request` payload | 520 bytes | Stack, per-call (`REQ_ADD_SOURCE` is largest) |
-| `CMD_Reply` buffer | 488 bytes | Stack, per-call |
-| `find_source_ip_by_name` sub-buffers | ~200 bytes | Stack, within delete/set_poll calls |
-| Local socket path string | 108 bytes | Stack + filesystem; unlinked before return |
-| Static state (`initialized` + `sequence`) | 8 bytes | Library lifetime |
-
-**Total persistent footprint: 8 bytes static, zero heap.**
-
 ---
 
 ## API Reference
@@ -361,27 +321,6 @@ if (ret != CHRONYCTL_SUCCESS) {
 
 ---
 
-## Concurrency Model
-
-`libchronyctl` spawns no threads and contains no internal synchronization. Both static variables (`chronyctl_initialized`, `chrony_sequence`) are unprotected.
-
-**If called from multiple threads concurrently:**
-- `chrony_sequence` has a data race
-- Two threads may bind to the same local socket path (`/var/run/chronyc.<pid>.sock`) simultaneously
-
-**Mitigation**: wrap all `chronyctl_*` calls with an application-level mutex:
-
-```c
-static pthread_mutex_t ntp_lock = PTHREAD_MUTEX_INITIALIZER;
-
-int safe_get_offset(double *out) {
-    pthread_mutex_lock(&ntp_lock);
-    int r = chronyctl_get_offset(out);
-    pthread_mutex_unlock(&ntp_lock);
-    return r;
-}
-```
-
 ### Thread Safety Summary
 
 | Function | Safe to call concurrently? |
@@ -415,12 +354,6 @@ int safe_get_offset(double *out) {
 - Local reply socket: `/var/run/chronyc.<pid>.sock` (falls back to `/tmp/chronyc.<pid>.sock`)
 - `chmod 0666` applied to local socket; requires chronyd configured to accept unauthenticated local commands
 - Receive timeout: 2 seconds (`SO_RCVTIMEO`)
-
-### RDK Broadband / RDKV Devices
-
-- chronyd is started by the RDK init framework; socket paths are standard
-- Library has no dependencies on rbus, RDK logger, or any RDK-specific headers — pure POSIX C
-- Suitable for any RDK target: ARMv7, ARMv8, MIPS
 
 ### Constraints
 
