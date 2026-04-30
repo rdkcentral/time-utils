@@ -69,11 +69,12 @@ static int parse_address(const char *address, IPAddr *ip) {
 }
 
 static void ip_host_to_network(const IPAddr *src, IPAddr *dest) {
-    memset(dest, 0, sizeof(IPAddr));
-    dest->family = htons(src->family);
-    if (src->family == IPADDR_INET4) {
-        dest->addr.in4 = htonl(src->addr.in4);
-    }
+    /*
+     * IPAddr fields are stored in host byte order. Preserve that layout
+     * when copying into protocol payloads instead of applying htons/htonl,
+     * which would corrupt IPv4 addresses on little-endian systems.
+     */
+    memcpy(dest, src, sizeof(IPAddr));
 }
 
 static void cleanup_local_socket() {
