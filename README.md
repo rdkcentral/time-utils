@@ -1,8 +1,25 @@
 # time-utils
 
-This repository is a placeholder for all time-related binaries and libraries for RDK devices and build environments. It is intended to serve as the single location for adding, managing, and documenting any RDK time utilities.
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](https://github.com/rdkcentral/time-utils/actions)
 
-Currently, the main component is the libchronyctl library, a lightweight C interface for controlling the chronyd NTP daemon. Details and architecture for this component are provided in the [docs/architecture/overview.md](docs/architecture/overview.md) document.
+Centralized collection of time management utilities for RDK-based devices. This repository is the single home for libraries and tools that handle NTP daemon control, clock synchronization, and related time operations across the RDK platform.
 
-Future additions to this repository may include alternative time protocols, service wrappers, device time management tools, or integration libraries relevant to RDK.
+## Table of Contents
+
+- [Components](#components)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Components
+
+- **[libchronyctl](libchronyctl/README.md)** — Lightweight C library for programmatic control of the `chronyd` NTP daemon over its Unix domain socket; replaces brittle `chronyc` subprocess calls with a typed in-process API.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. All contributors must sign the RDK Contributor License Agreement (CLA).
+
+## License
+
+time-utils is licensed under the [Apache License, Version 2.0](LICENSE).
 
