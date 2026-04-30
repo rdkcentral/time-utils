@@ -1,6 +1,6 @@
 /**
  * @file libchronyctl.h
- * @brief Thread-safe shared library for chronyd interaction
+ * @brief shared library for chronyd interaction
  */
 
 #ifndef LIBCHRONYCTL_H
