@@ -210,7 +210,7 @@ static void print_usage(const char *prog)
     printf("Commands:\n");
     printf("  offset_check\n");
     printf("  makestep\n");
-    printf("  server [host [minpoll [maxpoll]]]        (defaults: time.xfinity.com 6 10)\n");
+    printf("  server [host [minpoll [maxpoll]]]        (defaults: pool.ntp.org 6 10)\n");
     printf("  delete_server [host]                     (default: pool.ntp.org)\n");
     printf("  burst [n_good [n_total [addr [mask]]]]   (defaults: 4 8 all any)\n");
     printf("  online [addr [mask]]                     (defaults: all sources)\n");
