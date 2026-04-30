@@ -64,6 +64,21 @@ int chronyctl_makestep(void);
  */
 int chronyctl_add_server(const char *address, int minpoll, int maxpoll);
 
+/**
+ * @brief Request a burst of measurements from matching NTP sources
+ *
+ * Equivalent to `chronyc burst [addr/mask] good/total`. When both @p addr
+ * and @p mask are NULL the burst request applies to all sources
+ * (IPADDR_UNSPEC wildcard).
+ *
+ * @param addr            IP address to match, host byte-order
+ *                        (NULL = all sources)
+ * @param mask            IP mask to apply, host byte-order
+ *                        (NULL = all sources)
+ * @param n_good_samples  Minimum number of good samples to acquire
+ * @param n_total_samples Total number of samples to attempt
+ * @return CHRONYCTL_SUCCESS on success, error code otherwise
+ */
 int chronyctl_burst(const IPAddr *addr, const IPAddr *mask, int n_good_samples, int n_total_samples);
 
 /**
