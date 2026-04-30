@@ -93,20 +93,23 @@ static int connect_to_chronyd(void) {
     if (sockfd < 0) return -1;
 
     struct sockaddr_un local_addr;
+    mode_t old_umask;
     memset(&local_addr, 0, sizeof(local_addr));
     local_addr.sun_family = AF_UNIX;
     snprintf(local_addr.sun_path, sizeof(local_addr.sun_path), "/var/run/chronyc.%d.sock", getpid());
-    
+
+    old_umask = umask(0077);
     unlink(local_addr.sun_path);
     if (bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
         snprintf(local_addr.sun_path, sizeof(local_addr.sun_path), "/tmp/chronyc.%d.sock", getpid());
         unlink(local_addr.sun_path);
         if (bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
+            umask(old_umask);
             close(sockfd);
             return -1;
         }
     }
-    chmod(local_addr.sun_path, 0666);
+    umask(old_umask);
 
     for (int i = 0; socket_paths[i] != NULL; i++) {
         struct sockaddr_un addr;
