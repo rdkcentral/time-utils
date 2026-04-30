@@ -1,6 +1,37 @@
+/*
+ * Copyright 2026 Comcast Cable Communications Management, LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * @file libchronyctl.c
- * @brief Implementation of chronyd control library using direct protocol (thread-unsafe)
+ * @brief Implementation of chronyd control library using direct protocol
+ *
+ * Each call opens a fresh Unix-domain socket, binds it to a path that
+ * includes the **thread** ID (gettid) rather than the process ID (getpid).
+ * Using the thread ID guarantees that concurrent threads never try to bind
+ * to or unlink the same local socket file.
+ *
+ * Note, however, that this file still uses shared global state
+ * (`chronyctl_initialized`, `chrony_sequence`). The unique per-thread socket
+ * path only avoids bind/unlink collisions; it does not make the overall API
+ * safe for concurrent use. `chrony_sequence` is declared `_Atomic` to prevent
+ * a data race on the sequence counter, but `chronyctl_initialized` is not
+ * protected. Callers must ensure `chronyctl_init()` and `chronyctl_cleanup()`
+ * are not called concurrently with any other API.
  */
 
 #include "libchronyctl.h"
@@ -8,26 +39,39 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/time.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <math.h>
 #include <netdb.h>
 #include <sys/stat.h>
 #include <stddef.h>
+#include <sys/syscall.h>
+#include <stdatomic.h>
+
+/* Return the calling thread's TID.  Each thread in a process has a unique TID
+ * even though getpid() returns the same value for all threads.  Using the TID
+ * for the local socket path prevents concurrent threads from racing on the
+ * same bind/unlink operations. */
+static pid_t get_tid(void)
+{
+    return (pid_t)syscall(SYS_gettid);
+}
 
 /* --- Internal State --- */
 
 // Removed: static pthread_mutex_t chronyctl_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int chronyctl_initialized = 0;
-static uint32_t chrony_sequence = 0;
+static _Atomic uint32_t chrony_sequence = 0;
 
 static const char *socket_paths[] = {
-    "/var/run/chrony/chronyd.sock",
     "/run/chrony/chronyd.sock",
+    "/var/run/chrony/chronyd.sock",
     NULL
 };
 
@@ -69,7 +113,7 @@ static int parse_address(const char *address, IPAddr *ip) {
 }
 
 static void ip_host_to_network(const IPAddr *src, IPAddr *dest) {
-    memset(dest, 0, sizeof(IPAddr));
+  memset(dest, 0, sizeof(IPAddr));
     dest->family = htons(src->family);
     if (src->family == IPADDR_INET4) {
         dest->addr.in4 = htonl(src->addr.in4);
@@ -78,9 +122,13 @@ static void ip_host_to_network(const IPAddr *src, IPAddr *dest) {
 
 static void cleanup_local_socket() {
     char local_path[128];
-    snprintf(local_path, sizeof(local_path), "/var/run/chronyc.%d.sock", getpid());
+    snprintf(local_path, sizeof(local_path), "/run/chrony/chronyc.%d.sock", get_tid());
     unlink(local_path);
-    snprintf(local_path, sizeof(local_path), "/tmp/chronyc.%d.sock", getpid());
+    snprintf(local_path, sizeof(local_path), "/var/run/chrony/chronyc.%d.sock", get_tid());
+    unlink(local_path);
+    snprintf(local_path, sizeof(local_path), "/var/run/chronyc.%d.sock", get_tid());
+    unlink(local_path);
+    snprintf(local_path, sizeof(local_path), "/tmp/chronyc.%d.sock", get_tid());
     unlink(local_path);
 }
 
@@ -91,21 +139,46 @@ static int connect_to_chronyd(void) {
     sockfd = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (sockfd < 0) return -1;
 
-    struct sockaddr_un local_addr;
-    memset(&local_addr, 0, sizeof(local_addr));
-    local_addr.sun_family = AF_UNIX;
-    snprintf(local_addr.sun_path, sizeof(local_addr.sun_path), "/var/run/chronyc.%d.sock", getpid());
-    
-    unlink(local_addr.sun_path);
-    if (bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
-        snprintf(local_addr.sun_path, sizeof(local_addr.sun_path), "/tmp/chronyc.%d.sock", getpid());
-        unlink(local_addr.sun_path);
-        if (bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
-            close(sockfd);
-            return -1;
+    struct sockaddr_un local_address;
+    int bound = 0;
+
+    /*
+     * The client socket must be in the same directory as chronyd.sock.
+     * chronyd runs as _chrony and can only deliver reply datagrams to a
+     * path it can write to.  /run/chrony/ is drwx------ owned by _chrony,
+     * so any socket created there is accessible to chronyd regardless of
+     * the socket's own mode.  After bind(), chmod the socket to 0666 so
+     * that chronyd can write reply datagrams back to it (required on
+     * Raspberry Pi OS for the kernel inode_permission check).
+     */
+    static const char *local_paths[] = {
+        "/run/chrony/chronyc.%d.sock",
+        "/var/run/chrony/chronyc.%d.sock",
+        "/var/run/chronyc.%d.sock",
+        NULL
+    };
+
+    memset(&local_address, 0, sizeof(local_address));
+    local_address.sun_family = AF_UNIX;
+    for (int i = 0; local_paths[i] != NULL; i++) {
+        snprintf(local_address.sun_path, sizeof(local_address.sun_path), local_paths[i], get_tid());
+        unlink(local_address.sun_path);
+        if (bind(sockfd, (struct sockaddr *)&local_address, sizeof(local_address)) == 0) {
+            /* 0666 lets chronyd write back replies; execute bits are not
+             * meaningful for Unix sockets and 0777 is unnecessarily permissive. */
+            if (chmod(local_address.sun_path, 0666) != 0) {
+                unlink(local_address.sun_path);
+                close(sockfd);
+                return -1;
+            }
+            bound = 1;
+            break;
         }
     }
-    chmod(local_addr.sun_path, 0666);
+    if (!bound) {
+        close(sockfd);
+        return -1;
+    }
 
     for (int i = 0; socket_paths[i] != NULL; i++) {
         struct sockaddr_un addr;
@@ -127,15 +200,18 @@ static int connect_to_chronyd(void) {
 
 static size_t get_request_length(uint16_t command) {
     switch (command) {
-        case REQ_TRACKING:   return 104; // Header(20) + Data(4) + Padding(80) 
-        case REQ_MAKESTEP:   return 28;  // Header(20) + Data(4) + Padding(4)
-        case REQ_ONLINE:     return offsetof(CMD_Request, data.online.EOR);
-        case REQ_BURST:      return offsetof(CMD_Request, data.burst.EOR);
-        case REQ_ADD_SOURCE: return 520;
-        case REQ_DEL_SOURCE: return 40;
-        case REQ_MODIFY_MINPOLL: return 44;
-        case REQ_MODIFY_MAXPOLL: return 44;
-        default: return sizeof(CMD_Request);
+        /* REQ_Null has EOR at offset 0, so offsetof(CMD_Request, data.X.EOR) == offsetof(CMD_Request, data).
+         * PROTO v6 requires every request to be >= its reply size (anti-amplification).
+         * Use the reply struct to compute the correct minimum packet length. */
+        case REQ_TRACKING:        return offsetof(CMD_Reply, data) + offsetof(RPY_Tracking, EOR);
+        case REQ_MAKESTEP:        return offsetof(CMD_Reply, data) + offsetof(RPY_Null, EOR);
+        case REQ_ONLINE:          return offsetof(CMD_Request, data.online.EOR);
+        case REQ_BURST:           return offsetof(CMD_Request, data.burst.EOR);
+        case REQ_ADD_SOURCE:      return offsetof(CMD_Request, data.add_source.EOR);
+        case REQ_DEL_SOURCE:      return offsetof(CMD_Request, data.del_source.EOR);
+        case REQ_MODIFY_MINPOLL:  return offsetof(CMD_Request, data.modify_minpoll.EOR);
+        case REQ_MODIFY_MAXPOLL:  return offsetof(CMD_Request, data.modify_maxpoll.EOR);
+        default:                  return sizeof(CMD_Request);
     }
 }
 
@@ -144,7 +220,7 @@ static int send_request(int sockfd, uint16_t command, void *data, size_t data_si
     memset(&req, 0, sizeof(req));
     
     req.version  = PROTO_VERSION_NUMBER;
-    req.pkt_type = PKT_TYPE_CMD_REQUEST;
+    req.packet_type = PKT_TYPE_CMD_REQUEST;
     req.command  = htons(command);
     req.sequence = htonl(chrony_sequence++);
     
@@ -170,7 +246,7 @@ static int receive_reply(int sockfd, uint16_t expected_reply, void *data, size_t
         return CHRONYCTL_ERROR_EXEC;
     }
     
-    if (reply.version != PROTO_VERSION_NUMBER || reply.pkt_type != PKT_TYPE_CMD_REPLY) {
+    if (reply.version != PROTO_VERSION_NUMBER || reply.packet_type != PKT_TYPE_CMD_REPLY) {
         return CHRONYCTL_ERROR_EXEC;
     }
     
@@ -182,11 +258,15 @@ static int receive_reply(int sockfd, uint16_t expected_reply, void *data, size_t
     }
 
     uint16_t rpy = ntohs(reply.reply);
-    if (rpy != expected_reply && expected_reply != RPY_NULL) {
-        // Some flexibility allowed here
+    if (expected_reply != RPY_NULL && rpy != expected_reply) {
+        return CHRONYCTL_ERROR_PARSE;
     }
     
     if (data && data_size > 0) {
+        size_t required = offsetof(CMD_Reply, data) + data_size;
+        if (received < (ssize_t)required) {
+            return CHRONYCTL_ERROR_EXEC;
+        }
         memcpy(data, &reply.data, data_size);
     }
     
@@ -219,7 +299,7 @@ static int find_source_ip_by_name(int sockfd, const char *hostname, IPAddr *out_
     if (receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, sizeof(n_rpy)) != CHRONYCTL_SUCCESS)
         return -1;
 
-    uint32_t count = ntohl(n_rpy.n_sources);
+    uint32_t count = ntohl(n_rpy.source_count);
 
     for (uint32_t i = 0; i < count; i++) {
         /* Step 2: get IPAddr for source at index i */
@@ -236,7 +316,7 @@ static int find_source_ip_by_name(int sockfd, const char *hostname, IPAddr *out_
         /* Step 3: ask chronyd for the configured hostname of this IP */
         REQ_NTPSourceName sn_req;
         memset(&sn_req, 0, sizeof(sn_req));
-        sn_req.ip_addr = sd_rpy.ip_addr;  /* already in network byte order from the reply */
+        sn_req.ip_address = sd_rpy.ip_address;  /* already in network byte order from the reply */
         if (send_request(sockfd, REQ_NTP_SOURCE_NAME, &sn_req, sizeof(sn_req)) != 0)
             continue;
 
@@ -246,7 +326,7 @@ static int find_source_ip_by_name(int sockfd, const char *hostname, IPAddr *out_
 
         sn_rpy.name[sizeof(sn_rpy.name) - 1] = '\0';
         if (strncasecmp((char *)sn_rpy.name, hostname, sizeof(sn_rpy.name)) == 0) {
-            *out_net_ip = sd_rpy.ip_addr;   /* network byte order, ready for wire */
+            *out_net_ip = sd_rpy.ip_address;   /* network byte order, ready for wire */
             return 0;
         }
     }
@@ -277,7 +357,7 @@ int chronyctl_get_offset(double *offset_sec) {
         RPY_Tracking tracking;
         ret = receive_reply(sockfd, RPY_TRACKING, &tracking, sizeof(tracking));
         if (ret == CHRONYCTL_SUCCESS) {
-            *offset_sec = float_to_double(tracking.last_offset);
+            *offset_sec = float_to_double(tracking.last_clock_offset);
         }
     } else {
         ret = CHRONYCTL_ERROR_EXEC;
@@ -316,9 +396,9 @@ int chronyctl_online(const IPAddr *addr, const IPAddr *mask) {
     memset(&payload, 0, sizeof(payload));
 
     if (addr)
-        memcpy(&payload.address, addr, sizeof(IPAddr));
+        ip_host_to_network(addr, &payload.address);
     if (mask)
-        memcpy(&payload.mask, mask, sizeof(IPAddr));
+        ip_host_to_network(mask, &payload.mask);
 
     int ret = send_request(sockfd, REQ_ONLINE, &payload, sizeof(payload));
     if (ret == 0) {
@@ -332,7 +412,7 @@ int chronyctl_online(const IPAddr *addr, const IPAddr *mask) {
     return ret;
 }
 
-int chronyctl_burst(const IPAddr *addr, const IPAddr *mask, int n_good_samples, int n_total_samples)  {
+int chronyctl_burst(const IPAddr *addr, const IPAddr *mask, int good_sample_count, int total_sample_count)  {
     if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
 
     int sockfd = connect_to_chronyd();
@@ -342,12 +422,12 @@ int chronyctl_burst(const IPAddr *addr, const IPAddr *mask, int n_good_samples, 
     memset(&payload, 0, sizeof(payload));
 
     if (addr)
-        memcpy(&payload.address, addr, sizeof(IPAddr));
+        ip_host_to_network(addr, &payload.address);
     if (mask)
-        memcpy(&payload.mask, mask, sizeof(IPAddr));
+        ip_host_to_network(mask, &payload.mask);
 
-    payload.n_good_samples  = htonl(n_good_samples);
-    payload.n_total_samples = htonl(n_total_samples);
+    payload.good_sample_count  = htonl(good_sample_count);
+    payload.total_sample_count = htonl(total_sample_count);
 
     int ret = send_request(sockfd, REQ_BURST, &payload, sizeof(payload));
     if (ret == 0) {
@@ -372,12 +452,13 @@ int chronyctl_add_server(const char *address, int minpoll, int maxpoll) {
     REQ_NTP_Source payload;
     memset(&payload, 0, sizeof(payload));
     payload.type = htonl(REQ_ADDSRC_SERVER);
-    strncpy((char *)payload.name, address, 255);
+    strncpy((char *)payload.name, address, sizeof(payload.name) - 1);
+    ((char *)payload.name)[sizeof(payload.name) - 1] = '\0';
     payload.port = htonl(123);
     payload.minpoll = htonl(minpoll);
     payload.maxpoll = htonl(maxpoll);
-    payload.min_samples = htonl(6);
-    payload.max_samples = htonl(12);
+    payload.min_sample_count = htonl(6);
+    payload.max_sample_count = htonl(12);
     payload.flags = htonl(REQ_ADDSRC_IBURST);
     
     int ret = send_request(sockfd, REQ_ADD_SOURCE, &payload, sizeof(payload));
@@ -421,7 +502,7 @@ int chronyctl_delete_server(const char *address) {
 
     REQ_Del_Source payload;
     memset(&payload, 0, sizeof(payload));
-    payload.ip_addr = net_ip;
+    payload.ip_address = net_ip;
 
     int ret = send_request(sockfd, REQ_DEL_SOURCE, &payload, sizeof(payload));
     if (ret == 0) {
@@ -456,14 +537,22 @@ int chronyctl_set_poll(const char *address, int minpoll, int maxpoll) {
         ip_host_to_network(&host_ip, &net_ip);
     }
 
-    REQ_Modify_Minpoll min_payload = { .address = net_ip, .new_minpoll = htonl(minpoll) };
+    REQ_Modify_Minpoll min_payload = { .address = net_ip, .min_poll_interval = htonl(minpoll) };
     int ret = send_request(sockfd, REQ_MODIFY_MINPOLL, &min_payload, sizeof(min_payload));
-    if (ret == 0) ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
+    if (ret == 0) {
+        ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
+    } else {
+        ret = CHRONYCTL_ERROR_EXEC;
+    }
 
     if (ret == CHRONYCTL_SUCCESS) {
-        REQ_Modify_Maxpoll max_payload = { .address = net_ip, .new_maxpoll = htonl(maxpoll) };
+        REQ_Modify_Maxpoll max_payload = { .address = net_ip, .max_poll_interval = htonl(maxpoll) };
         ret = send_request(sockfd, REQ_MODIFY_MAXPOLL, &max_payload, sizeof(max_payload));
-        if (ret == 0) ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
+        if (ret == 0) {
+            ret = receive_reply(sockfd, RPY_NULL, NULL, 0);
+        } else {
+            ret = CHRONYCTL_ERROR_EXEC;
+        }
     }
 
     close(sockfd);
@@ -492,21 +581,26 @@ int chronyctl_has_selectable_source(int *has_selectable) {
         return ret;
     }
 
-    uint32_t count = ntohl(n_rpy.n_sources);
+    uint32_t count = ntohl(n_rpy.source_count);
     *has_selectable = 0;
 
     /* Step 2: inspect each source — mirror of 'chronyc sources -v' */
+    uint32_t query_failures = 0;
     for (uint32_t i = 0; i < count; i++) {
         REQ_Source_Data sd_req;
         memset(&sd_req, 0, sizeof(sd_req));
         sd_req.index = htonl(i);
 
-        if (send_request(sockfd, REQ_SOURCE_DATA, &sd_req, sizeof(sd_req)) != 0)
+        if (send_request(sockfd, REQ_SOURCE_DATA, &sd_req, sizeof(sd_req)) != 0) {
+            query_failures++;
             continue;
+        }
 
         RPY_Source_Data sd_rpy;
-        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, sizeof(sd_rpy)) != CHRONYCTL_SUCCESS)
+        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, sizeof(sd_rpy)) != CHRONYCTL_SUCCESS) {
+            query_failures++;
             continue;
+        }
 
         uint16_t state = ntohs(sd_rpy.state);
         /* RPY_SD_ST_SELECTED (0) == '*' and RPY_SD_ST_SELECTABLE (5) == '+'
@@ -517,9 +611,78 @@ int chronyctl_has_selectable_source(int *has_selectable) {
         }
     }
 
+    /* If chronyd told us there are sources but every single per-source query
+     * failed, the socket is broken — report an error rather than silently
+     * returning "no selectable source found". */
+    if (count > 0 && query_failures == count) {
+        close(sockfd);
+        cleanup_local_socket();
+        return CHRONYCTL_ERROR_EXEC;
+    }
+
     close(sockfd);
     cleanup_local_socket();
     return CHRONYCTL_SUCCESS;
+}
+
+int chronyctl_get_source_count(int *count) {
+    if (!count) return CHRONYCTL_ERROR_INVALID;
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
+
+    int sockfd = connect_to_chronyd();
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
+
+    int ret = send_request(sockfd, REQ_N_SOURCES, NULL, 0);
+    if (ret != 0) {
+        close(sockfd); cleanup_local_socket();
+        return CHRONYCTL_ERROR_EXEC;
+    }
+
+    RPY_N_Sources n_rpy;
+    ret = receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, sizeof(n_rpy));
+    if (ret == CHRONYCTL_SUCCESS)
+        *count = (int)ntohl(n_rpy.source_count);
+
+    close(sockfd);
+    cleanup_local_socket();
+    return ret;
+}
+
+int chronyctl_waitsync(int max_tries, int interval_sec) {
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
+    if (max_tries <= 0 || interval_sec <= 0) return CHRONYCTL_ERROR_INVALID;
+
+    for (int i = 0; i < max_tries; i++) {
+        int sockfd = connect_to_chronyd();
+        if (sockfd < 0) {
+            if (i < max_tries - 1)
+                sleep(interval_sec);
+            continue;
+        }
+
+        int ret = send_request(sockfd, REQ_TRACKING, NULL, 0);
+        if (ret == 0) {
+            RPY_Tracking tracking;
+            ret = receive_reply(sockfd, RPY_TRACKING, &tracking, sizeof(tracking));
+            if (ret == CHRONYCTL_SUCCESS) {
+                uint16_t leap   = ntohs(tracking.leap_indicator);
+                uint32_t reference_id = ntohl(tracking.reference_id);
+                /* Mirrors chronyc waitsync: synchronized when leap_indicator is not
+                 * LEAP_Unsynchronised (3) and a reference source is active. */
+                if (leap != 3 && reference_id != 0) {
+                    close(sockfd);
+                    cleanup_local_socket();
+                    return CHRONYCTL_SUCCESS;
+                }
+            }
+        }
+
+        close(sockfd);
+        cleanup_local_socket();
+        if (i < max_tries - 1)
+            sleep(interval_sec);
+    }
+    return CHRONYCTL_ERROR_NO_DATA;
 }
 
 const char* chronyctl_strerror(int err) {
