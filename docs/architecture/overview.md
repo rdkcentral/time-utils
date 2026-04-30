@@ -16,13 +16,13 @@ The library is a thin synchronous shim between the calling application and the `
 graph TB
     A[Client Application] -->|chronyctl_*| B[libchronyctl public API]
     B --> C[connect_to_chronyd]
-    C -->|AF_UNIX SOCK_DGRAM| D[/var/run/chrony/chronyd.sock]
+    C -->|AF_UNIX SOCK_DGRAM| D["chronyd.sock"]
     D -->|Unix socket| E[chronyd daemon]
-    B --> F[send_request\nCMD_Request + hton serialization]
+    B --> F["send_request - CMD_Request + hton"]
     F --> D
-    B --> G[receive_reply\nCMD_Reply + ntoh deserialization]
+    B --> G["receive_reply - CMD_Reply + ntoh"]
     G --> D
-    B --> H[cleanup_local_socket\nunlink /var/run/chronyc.PID.sock]
+    B --> H["cleanup_local_socket - unlink PID.sock"]
     I[test_timectl CLI] -->|ntp_ops_t vtable| B
 ```
 
