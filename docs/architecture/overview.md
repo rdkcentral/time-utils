@@ -397,7 +397,7 @@ This produces:
 ./test_timectl delete_server pool.ntp.org
 
 # Check source selection state
-./test_timectl --backend=chrony has_selectable_source  # (if supported)
+./test_timectl --backend=chrony selectable_check  # (if supported)
 ```
 
 ### Expected Error Scenarios
