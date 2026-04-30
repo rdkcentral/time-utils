@@ -1,4 +1,4 @@
-# rdklibchronyctl — Project Overview
+# libchronyctl — Project Overview
 
 ## Overview
 
