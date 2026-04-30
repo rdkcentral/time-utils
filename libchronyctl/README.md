@@ -60,7 +60,7 @@ int main(void) {
 | `chronyctl_online(addr, mask)` | Bring matching NTP sources online. |
 | `chronyctl_strerror(int err)` | Return a human-readable string for an error code. |
 
-For full details on error codes, thread safety, and platform notes see the [architecture overview](../docs/architecture/overview.md).
+For full details on error codes, thread safety, and platform notes see [docs/api.md](docs/api.md). For internal design, component diagrams, and socket lifecycle see [docs/architecture.md](docs/architecture.md).
 
 ## Building
 
