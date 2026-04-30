@@ -130,15 +130,15 @@ static int connect_to_chronyd(void) {
 
 static size_t get_request_length(uint16_t command) {
     switch (command) {
-        case REQ_TRACKING:   return 104; // Header(20) + Data(4) + Padding(80) 
-        case REQ_MAKESTEP:   return 28;  // Header(20) + Data(4) + Padding(4)
-        case REQ_ONLINE:     return offsetof(CMD_Request, data.online.EOR);
-        case REQ_BURST:      return offsetof(CMD_Request, data.burst.EOR);
-        case REQ_ADD_SOURCE: return 520;
-        case REQ_DEL_SOURCE: return 40;
-        case REQ_MODIFY_MINPOLL: return 44;
-        case REQ_MODIFY_MAXPOLL: return 44;
-        default: return sizeof(CMD_Request);
+        case REQ_TRACKING:        return offsetof(CMD_Request, data.tracking.EOR);
+        case REQ_MAKESTEP:        return offsetof(CMD_Request, data.makestep.EOR);
+        case REQ_ONLINE:          return offsetof(CMD_Request, data.online.EOR);
+        case REQ_BURST:           return offsetof(CMD_Request, data.burst.EOR);
+        case REQ_ADD_SOURCE:      return offsetof(CMD_Request, data.add_source.EOR);
+        case REQ_DEL_SOURCE:      return offsetof(CMD_Request, data.del_source.EOR);
+        case REQ_MODIFY_MINPOLL:  return offsetof(CMD_Request, data.modify_minpoll.EOR);
+        case REQ_MODIFY_MAXPOLL:  return offsetof(CMD_Request, data.modify_maxpoll.EOR);
+        default:                  return sizeof(CMD_Request);
     }
 }
 
