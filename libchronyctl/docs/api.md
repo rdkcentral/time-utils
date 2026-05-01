@@ -1,6 +1,6 @@
 # libchronyctl — API Reference
 
-## API Reference
+## Overview
 
 All functions require `chronyctl_init()` to have been called first (except `chronyctl_init()` itself and `chronyctl_strerror()`).
 
