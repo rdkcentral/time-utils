@@ -1,7 +1,6 @@
 # time-utils
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](https://github.com/rdkcentral/time-utils/actions)
 
 Centralized collection of time management utilities for RDK-based devices. This repository is the single home for libraries and tools that handle NTP daemon control, clock synchronization, and related time operations across the RDK platform.
 
