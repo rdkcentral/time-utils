@@ -34,7 +34,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "addressing.h"
+#include "chrony_address.h"
 
 
 #ifdef __cplusplus

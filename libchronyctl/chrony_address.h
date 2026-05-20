@@ -21,8 +21,8 @@
  * See https://chrony-project.org for more information.
  */
 
-#ifndef CHRONYCTL_ADDRESSING_H
-#define CHRONYCTL_ADDRESSING_H
+#ifndef CHRONYCTL_CHRONY_ADDRESS_H
+#define CHRONYCTL_CHRONY_ADDRESS_H
 
 #include <stdint.h>
 #include <arpa/inet.h>
@@ -68,4 +68,4 @@ typedef struct {
   int    socket_fd;
 } NTP_Local_Address;
 
-#endif /* CHRONYCTL_ADDRESSING_H */
+#endif /* CHRONYCTL_CHRONY_ADDRESS_H */

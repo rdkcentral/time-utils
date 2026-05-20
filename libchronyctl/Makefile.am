@@ -25,8 +25,8 @@ libchronyctl_la_LIBADD   = -lm
 # Public headers installed to $(includedir)
 include_HEADERS = \
         libchronyctl.h \
-        addressing.h \
-        candm.h
+        chrony_address.h \
+        chrony_protocol.h
 
 # -----------------------------------------------
 # Test binaries 

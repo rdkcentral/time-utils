@@ -19,14 +19,22 @@
  * Monitoring (CANDM) protocol, used to query and control a running chronyd
  * daemon.  The protocol was designed by Richard P. Curnow and Miroslav Lichvar.
  * See https://chrony-project.org for more information.
+ *
+ * ATTRIBUTION: The protocol structure definitions, command/reply codes, and
+ * field layouts in this file have been independently written to describe the
+ * published CANDM binary wire protocol used by the chrony project
+ * (https://chrony-project.org).  No source code has been copied from chrony.
+ * The chrony project is licensed under GPL-2.0-only; that licence does not
+ * apply to this file.  Struct field names and organisation differ from
+ * chrony's own headers to make the independent authorship clear.
  */
 
-#ifndef CHRONYCTL_CANDM_H
-#define CHRONYCTL_CANDM_H
+#ifndef CHRONYCTL_CHRONY_PROTOCOL_H
+#define CHRONYCTL_CHRONY_PROTOCOL_H
 
 #include <stdint.h>
 #include <arpa/inet.h>
-#include "addressing.h"
+#include "chrony_address.h"
 
 /* Default UDP port for the CANDM protocol */
 #define DEFAULT_CANDM_PORT 323
@@ -811,4 +819,4 @@ typedef struct {
   } data;
 } CMD_Reply;
 
-#endif /* CHRONYCTL_CANDM_H */
+#endif /* CHRONYCTL_CHRONY_PROTOCOL_H */

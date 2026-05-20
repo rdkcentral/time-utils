@@ -84,7 +84,7 @@ typedef struct {
 /* Chrony burst wrapper: converts string addr/mask to IPAddr          */
 /* ------------------------------------------------------------------ */
 
-#include "addressing.h"
+#include "chrony_address.h"
 #include <arpa/inet.h>
 #include <netdb.h>
 

@@ -32,12 +32,12 @@ graph TB
 ```
 libchronyctl.c
   ├── libchronyctl.h      (public API, error codes)
-  ├── candm.h             (chronyd wire protocol: CMD_Request, CMD_Reply, REQ_*, RPY_*, STT_*)
-  └── addressing.h        (IPAddr type, IPADDR_INET4/INET6/UNSPEC constants)
+  ├── chrony_protocol.h   (chronyd wire protocol: CMD_Request, CMD_Reply, REQ_*, RPY_*, STT_*)
+  └── chrony_address.h    (IPAddr type, IPADDR_INET4/INET6/UNSPEC constants)
 
 test_timectl.c
   ├── libchronyctl.h      (chrony backend)
-  └── addressing.h        (IPAddr for burst/online wrappers)
+  └── chrony_address.h    (IPAddr for burst/online wrappers)
 ```
 
 ---
@@ -62,11 +62,11 @@ typedef enum {
 } chronyctl_error;
 ```
 
-### `candm.h` — Wire Protocol Types
+### `chrony_protocol.h` — Wire Protocol Types
 
 Clean-room Apache-2.0 implementation of the chronyd control protocol definitions. Defines `CMD_Request`, `CMD_Reply`, all `REQ_*` command codes, `RPY_*` reply codes, `STT_*` status codes, and protocol data structures (`RPY_Tracking`, `REQ_NTP_Source`, `REQ_Del_Source`, `REQ_Burst`, etc.).
 
-### `addressing.h` — Network Address Type
+### `chrony_address.h` — Network Address Type
 
 Defines `IPAddr` — a union holding an IPv4 address, IPv6 address, or numeric ID — and the `IPADDR_*` family constants. All addresses in `libchronyctl` are stored in **host byte order** in `IPAddr`; conversion to network byte order happens inside `ip_host_to_network()` before embedding in wire payloads.
 
@@ -175,7 +175,7 @@ sequenceDiagram
 
 | Constraint | Value |
 |-----------|-------|
-| chronyd protocol version | chrony 3.x+ (`PROTO_VERSION_NUMBER` from `candm.h`) |
+| chronyd protocol version | chrony 3.x+ (`PROTO_VERSION_NUMBER` from `chrony_protocol.h`) |
 | IP family | IPv4 only (`AF_INET`; `parse_address()` uses `hints.ai_family = AF_INET`) |
 | Min stack per call | ~1 KB |
 | Min RAM | No library-imposed minimum beyond kernel defaults |

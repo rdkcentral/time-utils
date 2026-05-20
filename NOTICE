@@ -17,3 +17,18 @@ This product includes software developed at Comcast (http://www.comcast.com/).
 The component may include material which is licensed under other licenses / copyrights as
 listed below. Your use of this material within the component is also subject to the terms and
 conditions of these licenses. The LICENSE file contains the text of all the licenses which apply within this component.
+
+---
+
+chrony protocol acknowledgement
+
+The libchronyctl component communicates with the chronyd daemon using the chrony Command And
+Monitoring (CANDM) binary wire protocol.  The protocol was designed by Richard P. Curnow and
+Miroslav Lichvar as part of the chrony project (https://chrony-project.org).
+
+The wire-protocol structure definitions, command codes, reply codes, and field layouts in
+libchronyctl/chrony_protocol.h and libchronyctl/chrony_address.h were independently written
+to describe that published binary protocol.  No source code was copied from the chrony project.
+The chrony project source code is licensed under GPL-2.0-only; that licence does not apply to
+this component.  The presence of structurally similar protocol definitions is a necessary
+consequence of implementing a compatible client for the same binary wire format.

@@ -35,7 +35,7 @@
  */
 
 #include "libchronyctl.h"
-#include "candm.h"
+#include "chrony_protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
