@@ -69,11 +69,41 @@ int chronyctl_init(void);
 int chronyctl_cleanup(void);
 
 /**
- * @brief Get current time offset from chronyd
- * @param offset_sec Pointer to double to store offset in seconds
+ * @brief Get the last measured clock offset from chronyd
+ *
+ * Returns the @e last_clock_offset field from chronyd's tracking data,
+ * which is the raw offset measured at the most recent NTP sample exchange.
+ * This corresponds to the "Last offset" line in `chronyc tracking` output.
+ *
+ * Use this when you want to know how far off the clock was at the instant
+ * of the last NTP measurement.
+ *
+ * @param offset_sec  Set to the last measured offset in seconds (positive
+ *                    means the system clock is ahead of NTP time).
+ *                    Must not be NULL.
  * @return CHRONYCTL_SUCCESS on success, error code otherwise
  */
 int chronyctl_get_offset(double *offset_sec);
+
+/**
+ * @brief Get the current system-time offset being tracked by chronyd
+ *
+ * Returns the @e clock_correction field from chronyd's tracking data,
+ * which is chronyd's running estimate of the current system-clock error
+ * — i.e., how much the system clock differs from true time right now.
+ * This corresponds to the "System time" line in `chronyc tracking` output.
+ *
+ * Unlike chronyctl_get_offset() (which gives the offset at the last NTP
+ * sample), this value is continuously updated between NTP exchanges using
+ * chronyd's frequency model and is therefore a better estimate of the
+ * current clock error.
+ *
+ * @param system_offset_sec  Set to the current estimated clock offset in
+ *                           seconds (positive means the system clock is
+ *                           ahead of true time).  Must not be NULL.
+ * @return CHRONYCTL_SUCCESS on success, error code otherwise
+ */
+int chronyctl_get_system_time_offset(double *system_offset_sec);
 
 /**
  * @brief Force chronyd to step the system clock

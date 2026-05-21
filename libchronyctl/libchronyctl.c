@@ -348,21 +348,50 @@ int chronyctl_cleanup(void) {
 int chronyctl_get_offset(double *offset_sec) {
     if (!offset_sec) return CHRONYCTL_ERROR_INVALID;
     if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
-    
+
     int sockfd = connect_to_chronyd();
     if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
-    
+
     int ret = send_request(sockfd, REQ_TRACKING, NULL, 0);
     if (ret == 0) {
         RPY_Tracking tracking;
         ret = receive_reply(sockfd, RPY_TRACKING, &tracking, offsetof(RPY_Tracking, EOR));
         if (ret == CHRONYCTL_SUCCESS) {
+            /* last_clock_offset: raw offset measured at the last NTP sample
+             * exchange — corresponds to "Last offset" in chronyc tracking. */
             *offset_sec = float_to_double(tracking.last_clock_offset);
         }
     } else {
         ret = CHRONYCTL_ERROR_EXEC;
     }
-    
+
+    close(sockfd);
+    cleanup_local_socket();
+    return ret;
+}
+
+int chronyctl_get_system_time_offset(double *system_offset_sec) {
+    if (!system_offset_sec) return CHRONYCTL_ERROR_INVALID;
+    if (!chronyctl_initialized) return CHRONYCTL_ERROR_NOT_INIT;
+
+    int sockfd = connect_to_chronyd();
+    if (sockfd < 0) return CHRONYCTL_ERROR_NO_DATA;
+
+    int ret = send_request(sockfd, REQ_TRACKING, NULL, 0);
+    if (ret == 0) {
+        RPY_Tracking tracking;
+        ret = receive_reply(sockfd, RPY_TRACKING, &tracking, offsetof(RPY_Tracking, EOR));
+        if (ret == CHRONYCTL_SUCCESS) {
+            /* clock_correction: chronyd's current running estimate of the
+             * system-clock error, updated continuously between NTP exchanges
+             * using the frequency model — corresponds to "System time" in
+             * chronyc tracking. */
+            *system_offset_sec = float_to_double(tracking.clock_correction);
+        }
+    } else {
+        ret = CHRONYCTL_ERROR_EXEC;
+    }
+
     close(sockfd);
     cleanup_local_socket();
     return ret;

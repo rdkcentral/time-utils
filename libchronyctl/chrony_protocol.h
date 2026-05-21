@@ -20,13 +20,8 @@
  * daemon.  The protocol was designed by Richard P. Curnow and Miroslav Lichvar.
  * See https://chrony-project.org for more information.
  *
- * ATTRIBUTION: The protocol structure definitions, command/reply codes, and
- * field layouts in this file have been independently written to describe the
- * published CANDM binary wire protocol used by the chrony project
- * (https://chrony-project.org).  No source code has been copied from chrony.
- * The chrony project is licensed under GPL-2.0-only; that licence does not
- * apply to this file.  Struct field names and organisation differ from
- * chrony's own headers to make the independent authorship clear.
+ * The wire-protocol structure definitions, command codes, reply codes, and field layouts in this file describe the published binary protocol.  
+ * No source code was copied from the chrony project.
  */
 
 #ifndef CHRONYCTL_CHRONY_PROTOCOL_H

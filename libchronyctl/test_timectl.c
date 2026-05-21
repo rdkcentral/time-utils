@@ -35,7 +35,8 @@
  *
  * Commands:
  *   online                                  - Mark sources as available
- *   offset_check                            - Print current clock offset
+ *   offset_check                            - Print last measured clock offset (Last offset)
+ *   system_time_check                       - Print current system-time offset (System time)
  *   makestep                                - Force an immediate clock step
  *   server [host [minpoll [maxpoll]]]       - Add an NTP server
  *   delete_server [host]                    - Remove an NTP server
@@ -63,6 +64,9 @@ typedef struct {
     int  (*init)(void);
     int  (*cleanup)(void);
     int  (*get_offset)(double *offset_sec);
+    /* get_system_time_offset: current clock error estimate ("System time" in
+     * chronyc tracking), continuously updated between NTP exchanges */
+    int  (*get_system_time_offset)(double *system_offset_sec);
     int  (*makestep)(void);
     int  (*add_server)(const char *host, int minpoll, int maxpoll);
     int  (*delete_server)(const char *host);
@@ -172,11 +176,12 @@ static int chrony_online(const char *addr_str, const char *mask_str)
 
 static const ntp_ops_t backends[] = {
     {
-        .name          = "chrony",
-        .init          = chronyctl_init,
-        .cleanup       = chronyctl_cleanup,
-        .get_offset    = chronyctl_get_offset,
-        .makestep      = chronyctl_makestep,
+        .name                    = "chrony",
+        .init                    = chronyctl_init,
+        .cleanup                 = chronyctl_cleanup,
+        .get_offset              = chronyctl_get_offset,
+        .get_system_time_offset  = chronyctl_get_system_time_offset,
+        .makestep                = chronyctl_makestep,
         .add_server    = chronyctl_add_server,
         .delete_server = chronyctl_delete_server,
         .set_poll      = chronyctl_set_poll,
@@ -236,7 +241,8 @@ static void print_usage(const char *prog)
 {
     printf("Usage: %s [--backend=<name>] <command> [args...]\n\n", prog);
     printf("Commands:\n");
-    printf("  offset_check\n");
+    printf("  offset_check                             print last measured clock offset (Last offset)\n");
+    printf("  system_time_check                        print current system-time offset (System time)\n");
     printf("  makestep\n");
     printf("  server [host [minpoll [maxpoll]]]        (defaults: time.xfinity.com 6 10)\n");
     printf("  delete_server [host]                     (default: time.xfinity.com)\n");
@@ -288,7 +294,14 @@ int main(int argc, char *argv[])
         ret = ops->get_offset(&offset);
         report(ops, ret, "get_offset");
         if (ret == 0)
-            printf("  Offset: %.9f seconds\n", offset);
+            printf("  Last offset: %.9f seconds\n", offset);
+
+    } else if (strcmp(cmd, "system_time_check") == 0) {
+        double sys_offset = 0.0;
+        ret = ops->get_system_time_offset(&sys_offset);
+        report(ops, ret, "get_system_time_offset");
+        if (ret == 0)
+            printf("  System time offset: %.9f seconds\n", sys_offset);
 
     } else if (strcmp(cmd, "makestep") == 0) {
         ret = ops->makestep();
