@@ -19,7 +19,7 @@ lib_LTLIBRARIES = libchronyctl.la
 
 libchronyctl_la_SOURCES  = libchronyctl.c
 libchronyctl_la_CFLAGS   = -Wall -Wextra -fPIC
-libchronyctl_la_LDFLAGS  = -version-info 1:0:0
+libchronyctl_la_LDFLAGS  = -version-info 1:0:0  -shared
 libchronyctl_la_LIBADD   = -lm
 
 # Public headers installed to $(includedir)

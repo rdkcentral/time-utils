@@ -237,11 +237,11 @@ static int receive_reply(int sockfd, uint16_t expected_reply, void *data, size_t
     CMD_Reply reply;
     memset(&reply, 0, sizeof(reply));
     ssize_t received = recv(sockfd, &reply, sizeof(reply), 0);
-    
+
     if (received < 0) {
         return CHRONYCTL_ERROR_EXEC;
     }
-    
+
     if (received < (ssize_t)offsetof(CMD_Reply, data)) {
         return CHRONYCTL_ERROR_EXEC;
     }
@@ -296,7 +296,7 @@ static int find_source_ip_by_name(int sockfd, const char *hostname, IPAddr *out_
         return -1;
 
     RPY_N_Sources n_rpy;
-    if (receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, sizeof(n_rpy)) != CHRONYCTL_SUCCESS)
+    if (receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, offsetof(RPY_N_Sources, EOR)) != CHRONYCTL_SUCCESS)
         return -1;
 
     uint32_t count = ntohl(n_rpy.source_count);
@@ -310,7 +310,7 @@ static int find_source_ip_by_name(int sockfd, const char *hostname, IPAddr *out_
             continue;
 
         RPY_Source_Data sd_rpy;
-        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, sizeof(sd_rpy)) != CHRONYCTL_SUCCESS)
+        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, offsetof(RPY_Source_Data, EOR)) != CHRONYCTL_SUCCESS)
             continue;
 
         /* Step 3: ask chronyd for the configured hostname of this IP */
@@ -321,7 +321,7 @@ static int find_source_ip_by_name(int sockfd, const char *hostname, IPAddr *out_
             continue;
 
         RPY_NTPSourceName sn_rpy;
-        if (receive_reply(sockfd, RPY_NTP_SOURCE_NAME, &sn_rpy, sizeof(sn_rpy)) != CHRONYCTL_SUCCESS)
+        if (receive_reply(sockfd, RPY_NTP_SOURCE_NAME, &sn_rpy, offsetof(RPY_NTPSourceName, EOR)) != CHRONYCTL_SUCCESS)
             continue;
 
         sn_rpy.name[sizeof(sn_rpy.name) - 1] = '\0';
@@ -355,7 +355,7 @@ int chronyctl_get_offset(double *offset_sec) {
     int ret = send_request(sockfd, REQ_TRACKING, NULL, 0);
     if (ret == 0) {
         RPY_Tracking tracking;
-        ret = receive_reply(sockfd, RPY_TRACKING, &tracking, sizeof(tracking));
+        ret = receive_reply(sockfd, RPY_TRACKING, &tracking, offsetof(RPY_Tracking, EOR));
         if (ret == CHRONYCTL_SUCCESS) {
             *offset_sec = float_to_double(tracking.last_clock_offset);
         }
@@ -575,7 +575,7 @@ int chronyctl_has_selectable_source(int *has_selectable) {
     }
 
     RPY_N_Sources n_rpy;
-    ret = receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, sizeof(n_rpy));
+    ret = receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, offsetof(RPY_N_Sources, EOR));
     if (ret != CHRONYCTL_SUCCESS) {
         close(sockfd); cleanup_local_socket();
         return ret;
@@ -597,7 +597,7 @@ int chronyctl_has_selectable_source(int *has_selectable) {
         }
 
         RPY_Source_Data sd_rpy;
-        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, sizeof(sd_rpy)) != CHRONYCTL_SUCCESS) {
+        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, offsetof(RPY_Source_Data, EOR)) != CHRONYCTL_SUCCESS) {
             query_failures++;
             continue;
         }
@@ -639,7 +639,7 @@ int chronyctl_get_source_count(int *count) {
     }
 
     RPY_N_Sources n_rpy;
-    ret = receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, sizeof(n_rpy));
+    ret = receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, offsetof(RPY_N_Sources, EOR));
     if (ret == CHRONYCTL_SUCCESS)
         *count = (int)ntohl(n_rpy.source_count);
 
@@ -663,7 +663,7 @@ int chronyctl_waitsync(int max_tries, int interval_sec) {
         int ret = send_request(sockfd, REQ_TRACKING, NULL, 0);
         if (ret == 0) {
             RPY_Tracking tracking;
-            ret = receive_reply(sockfd, RPY_TRACKING, &tracking, sizeof(tracking));
+            ret = receive_reply(sockfd, RPY_TRACKING, &tracking, offsetof(RPY_Tracking, EOR));
             if (ret == CHRONYCTL_SUCCESS) {
                 uint16_t leap   = ntohs(tracking.leap_indicator);
                 uint32_t reference_id = ntohl(tracking.reference_id);
