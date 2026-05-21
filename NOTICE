@@ -28,7 +28,6 @@ Miroslav Lichvar as part of the chrony project (https://chrony-project.org).
 
 The wire-protocol structure definitions, command codes, reply codes, and field layouts in
 libchronyctl/chrony_protocol.h and libchronyctl/chrony_address.h were independently written
-to describe that published binary protocol.  No source code was copied from the chrony project.
-The chrony project source code is licensed under GPL-2.0-only; that licence does not apply to
-this component.  The presence of structurally similar protocol definitions is a necessary
-consequence of implementing a compatible client for the same binary wire format.
+to describe that published binary protocol.  No source code was copied from the chrony project.
+(The presence of structurally similar protocol definitions, fields etc. is a necessary
+consequence of implementing a compatible client for the same binary wire format.)
