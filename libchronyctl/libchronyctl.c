@@ -669,12 +669,31 @@ int chronyctl_get_source_count(int *count) {
 
     RPY_N_Sources n_rpy;
     ret = receive_reply(sockfd, RPY_N_SOURCES, &n_rpy, offsetof(RPY_N_Sources, EOR));
-    if (ret == CHRONYCTL_SUCCESS)
-        *count = (int)ntohl(n_rpy.source_count);
+    if (ret != CHRONYCTL_SUCCESS) {
+        close(sockfd); cleanup_local_socket();
+        return ret;
+    }
+
+    uint32_t total = ntohl(n_rpy.source_count);
+    int resolved_count = 0;
+    for (uint32_t i = 0; i < total; i++) {
+        REQ_Source_Data sd_req;
+        memset(&sd_req, 0, sizeof(sd_req));
+        sd_req.index = htonl(i);
+        if (send_request(sockfd, REQ_SOURCE_DATA, &sd_req, sizeof(sd_req)) != 0)
+            continue;
+        RPY_Source_Data sd_rpy;
+        if (receive_reply(sockfd, RPY_SOURCE_DATA, &sd_rpy, offsetof(RPY_Source_Data, EOR)) != CHRONYCTL_SUCCESS)
+            continue;
+        uint16_t fam = ntohs(sd_rpy.ip_address.family);
+        if (fam == IPADDR_INET4 || fam == IPADDR_INET6)
+            resolved_count++;
+    }
+    *count = resolved_count;
 
     close(sockfd);
     cleanup_local_socket();
-    return ret;
+    return CHRONYCTL_SUCCESS;
 }
 
 int chronyctl_waitsync(int max_tries, int interval_sec) {
