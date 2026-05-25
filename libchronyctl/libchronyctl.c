@@ -693,7 +693,7 @@ int chronyctl_get_source_count(int *count) {
 
     close(sockfd);
     cleanup_local_socket();
-    return CHRONYCTL_SUCCESS;
+    return CHRONYCTL_SUCCESS; 
 }
 
 int chronyctl_waitsync(int max_tries, int interval_sec) {
