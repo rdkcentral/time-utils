@@ -198,6 +198,7 @@ static int connect_to_chronyd(void) {
     return -1;
 }
 
+
 static size_t get_request_length(uint16_t command) {
     switch (command) {
         /* REQ_Null has EOR at offset 0, so offsetof(CMD_Request, data.X.EOR) == offsetof(CMD_Request, data).
