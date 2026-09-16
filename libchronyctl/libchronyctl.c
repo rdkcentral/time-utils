@@ -130,6 +130,8 @@ static void cleanup_local_socket() {
     unlink(local_path);
     snprintf(local_path, sizeof(local_path), "/tmp/chronyc.%d.sock", get_tid());
     unlink(local_path);
+
+    printf("Test Coverity %s\n");
 }
 
 static int connect_to_chronyd(void) {
