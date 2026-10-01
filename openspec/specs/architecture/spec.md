@@ -1,69 +1,59 @@
 ## Purpose
 
-Describes the component structure of the `time-utils` repository — what each component produces, what it depends on, and which directory to modify for a given type of change.
+Describes the structure of the `time-utils` repository so new requests can be scoped correctly: which directory to change, and where to add the spec for it.
+
+This repo currently hosts **one** component. The structure below is written so that adding a second component later is a predictable, low-friction step.
 
 ---
 
-## Diagram: Repo Component Overview
+## Current Components
 
-Shows how the components hosted in this repo relate to each other and to the external `chronyd` daemon.
-
-→ [View diagram](../../diagrams/01-time-utils-repo-components.md)
-
----
-
-## Components
-
-`time-utils` is the centralized home for time-management libraries and tools used across RDK-based devices. Each component is built independently (its own `configure.ac` / `Makefile.am`) and, where it is large enough to warrant one, owns its own OpenSpec documentation set.
-
-### `libchronyctl` → chronyd control library
-
-- **Produces**: `libchronyctl.la` (shared library) + `test_timectl` (CLI test binary)
-- **Depends on**: POSIX sockets, `libm` — no RDK/platform dependencies, no IARM/WPEFramework
-- **Contains**: a typed, synchronous C API that speaks `chronyd`'s native Unix-domain-socket control protocol directly, replacing `chronyc` subprocess calls
-- **OpenSpec docs**: [specs/libchronyctl/spec.md](../libchronyctl/spec.md) (this repo's top-level `openspec/`)
-
-**Change this component when**: adding or changing a chronyd control operation, changing wire-protocol handling (`chrony_protocol.h`), or changing the per-call socket lifecycle.
-
-### `systemtimemgr` → time-source arbitration daemon (consumer)
-
-- **Produces**: `libsysTimeMgr.so` + `sysTimeMgr` binary, plus the `interface` and `systimerfactory` sub-packages
-- **Depends on**: `libchronyctl` (only when the Chrony RFC feature flag is enabled), IARM, WPEFramework, optionally TEE/DTT
-- **Contains**: the state machine that arbitrates between NTP, DRM/secure, and DTT time sources and decides when to trust and broadcast a given time-quality level
-- **OpenSpec docs**: `systemtimemgr/openspec/` — a complete, independent OpenSpec instance. See [systemtimemgr/openspec/specs/architecture/spec.md](../../systemtimemgr/openspec/specs/architecture/spec.md) for its internal three-package structure, and [systemtimemgr/openspec/specs/chrony-ntp-sync/spec.md](../../systemtimemgr/openspec/specs/chrony-ntp-sync/spec.md) for the `libchronyctl` integration contract from the consumer side.
-
-**Change this component when**: changing time-source arbitration, state-machine transitions, or platform IPC integration — start in its own `openspec/` first.
+| Component | Directory | Produces | Spec |
+|---|---|---|---|
+| `libchronyctl` | [libchronyctl/](../../../libchronyctl) | `libchronyctl.la` (shared library), `test_timectl` (CLI test binary) | [specs/libchronyctl/spec.md](../libchronyctl/spec.md) |
 
 ---
 
-## Requirement: Dependency Direction Is One-Way
+## Requirement: Each Component Owns Exactly One Spec Folder
 
-`systemtimemgr` MAY depend on `libchronyctl`; `libchronyctl` MUST NOT depend on `systemtimemgr` or any other component in this repo.
+Every top-level buildable component in this repo MUST have a matching folder under `openspec/specs/<component-name>/spec.md` that describes its behavior in requirement/scenario form.
 
-### Scenario: libchronyctl builds and is testable standalone
+### Scenario: Finding the spec for existing code
 
-- **WHEN** `libchronyctl` is built via its own `configure.ac` / `Makefile.am`
-- **THEN** it produces `libchronyctl.la` and `test_timectl` without requiring `systemtimemgr`, IARM, or WPEFramework to be present
-- **AND** `test_timectl` can exercise the full public API against a bare `chronyd` instance
+- **WHEN** someone wants to understand or change `libchronyctl`
+- **THEN** [specs/libchronyctl/spec.md](../libchronyctl/spec.md) is the single source of truth for its expected behavior
 
-### Scenario: systemtimemgr links against libchronyctl only when Chrony RFC is enabled
+### Scenario: Adding a new component to the repo
 
-- **WHEN** `systemtimemgr` is built with the Chrony RFC feature path enabled
-- **THEN** `systimerfactory` links against `libchronyctl.h` / `libchronyctl.so`
-- **AND** when the RFC flag is absent at runtime, no `chronyctl_*` call is made (see `systemtimemgr/openspec/specs/chrony-ntp-sync/spec.md`)
-
-```
-systemtimemgr  ──▶  libchronyctl   (build-time link; call-time gated by Chrony RFC flag)
-                        │
-                        ▼
-                   chronyd daemon  (external process, via Unix domain socket)
-```
+- **WHEN** a new top-level buildable component is added (its own `configure.ac`/`Makefile.am`, e.g. a new library or tool)
+- **THEN** a new `openspec/specs/<component-name>/spec.md` is created for it
+- **AND** a row is added to the **Current Components** table above
+- **AND** the component is listed in the top-level [README.md](../../../README.md) under **Components**
 
 ---
 
-## Adding a New Component
+## Requirement: New Requests Are Written as Spec Changes First
 
-1. Create a top-level directory with its own `configure.ac` / `Makefile.am` (autotools component), following the pattern in [libchronyctl](../../../libchronyctl) or [systemtimemgr](../../../systemtimemgr).
-2. Add an entry to this spec's **Components** section: produces / depends on / contains / OpenSpec docs / change triggers.
-3. If the component is large or independently evolving enough to need its own requirement scenarios, give it its own `openspec/specs/<component>/` subfolder — follow `systemtimemgr/openspec/` as the full reference example.
-4. List the component in the top-level [README.md](../../../README.md) under **Components**.
+To add a new capability or change existing behavior, write the requirement as a new (or updated) `Requirement` + `Scenario` block in the relevant component's spec **before** writing code.
+
+### Scenario: Adding a new capability to an existing component (e.g. libchronyctl)
+
+- **WHEN** a new function, behavior, or rule is requested for `libchronyctl`
+- **THEN** add a new `## Requirement: <short name>` section to [specs/libchronyctl/spec.md](../libchronyctl/spec.md) with one or more `### Scenario:` blocks describing the expected `WHEN` / `AND` / `THEN` behavior
+- **AND** implement the code to satisfy that spec
+- **AND** keep the spec and the code in sync — if behavior changes, the spec changes in the same PR
+
+### Scenario: Changing existing behavior
+
+- **WHEN** existing behavior needs to change (not just extend)
+- **THEN** update the relevant `Scenario` in place rather than leaving the old, now-incorrect scenario in the spec
+
+---
+
+## Adding a New Component — Checklist
+
+1. Create `<component-name>/` at the repo root with its own `configure.ac` / `Makefile.am`, following [libchronyctl](../../../libchronyctl) as the reference layout.
+2. Create `openspec/specs/<component-name>/spec.md` describing its behavior as `Requirement` / `Scenario` blocks.
+3. Add it to the **Current Components** table in this file.
+4. Add it to the top-level [README.md](../../../README.md) **Components** list.
+5. If the component's call flow benefits from a diagram, add one under `openspec/diagrams/` and link it from the top of the component's spec.

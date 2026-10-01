@@ -8,7 +8,7 @@ Defines the functional contract of `libchronyctl` — the lightweight C library 
 
 Shows the exact sequence every `chronyctl_*` data-plane call follows, from socket creation through cleanup.
 
-→ [View diagram](../../diagrams/02-libchronyctl-request-flow.md)
+→ [View diagram](../../diagrams/01-libchronyctl-request-flow.md)
 
 ---
 
