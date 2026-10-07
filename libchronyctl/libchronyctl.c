@@ -6,7 +6,7 @@
  * You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
- *
+ *set
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -186,7 +186,11 @@ static int connect_to_chronyd(void) {
         addr.sun_family = AF_UNIX;
         strncpy(addr.sun_path, socket_paths[i], sizeof(addr.sun_path) - 1);
         if (connect(sockfd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
-            setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) {
+                close(sockfd);
+                cleanup_local_socket();
+                return -1;
+            }
             return sockfd;
         }
     }
