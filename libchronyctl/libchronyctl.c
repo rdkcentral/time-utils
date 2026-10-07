@@ -187,11 +187,11 @@ static int connect_to_chronyd(void) {
         strncpy(addr.sun_path, socket_paths[i], sizeof(addr.sun_path) - 1);
         if (connect(sockfd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
             if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) {
-            close(sockfd);
-        cleanup_local_socket();
-        return -1;
-        }
-        return sockfd;
+                close(sockfd);
+                cleanup_local_socket();
+                return -1;
+            }
+            return sockfd;
         }
     }
 
