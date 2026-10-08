@@ -125,6 +125,58 @@ The library MUST expose two distinct offset readings so callers can choose betwe
 
 ---
 
+## Requirement: Burst Requests Trigger Additional NTP Polls
+
+`chronyctl_burst()` MUST request a burst of measurements (`REQ_BURST`) from the sources matching the caller-supplied address/mask, or from all sources when both are omitted.
+
+### Scenario: Burst targeted at matching sources
+
+- **WHEN** `chronyctl_burst(addr, mask, good_sample_count, total_sample_count)` is called with non-NULL `addr`/`mask`
+- **THEN** a `REQ_BURST` request is sent with those values converted to network byte order, requesting `good_sample_count` good samples out of `total_sample_count` attempts
+- **AND** on success the function returns `CHRONYCTL_SUCCESS`
+
+### Scenario: Burst with no address/mask targets all sources
+
+- **WHEN** `chronyctl_burst(NULL, NULL, good_sample_count, total_sample_count)` is called
+- **THEN** the request is sent with the `IPADDR_UNSPEC` wildcard address/mask, equivalent to `chronyc burst good/total` with no source filter
+
+---
+
+## Requirement: Online Command Brings Matching Sources Online
+
+`chronyctl_online()` MUST mark the sources matching the caller-supplied address/mask as online (`REQ_ONLINE`), or all sources when both are omitted.
+
+### Scenario: Bring matching sources online
+
+- **WHEN** `chronyctl_online(addr, mask)` is called with non-NULL `addr`/`mask`
+- **THEN** a `REQ_ONLINE` request is sent with those values converted to network byte order
+- **AND** on success the function returns `CHRONYCTL_SUCCESS`
+
+### Scenario: Bring all sources online
+
+- **WHEN** `chronyctl_online(NULL, NULL)` is called
+- **THEN** the request is sent with the `IPADDR_UNSPEC` wildcard address/mask, equivalent to `chronyc online` with no source filter
+
+---
+
+## Requirement: Backend-Agnostic Test CLI Validates the Library Without Changing the Harness
+
+The component MUST ship `test_timectl`, a CLI test binary that exercises every public `chronyctl_*` function through a function-pointer table (`ntp_ops_t`) rather than calling `libchronyctl` directly, so that a future NTP/PTP client backend can be validated with the same harness and commands.
+
+### Scenario: test_timectl exercises the chrony backend
+
+- **WHEN** `test_timectl <command> [args...]` is run against a live `chronyd`
+- **THEN** the command dispatches through the `ntp_ops_t` table's `chrony` backend row to the corresponding `chronyctl_*` function
+- **AND** the full set of data-plane operations is reachable from the CLI: `online`, `offset_check`, `system_time_check`, `makestep`, `server`, `delete_server`, `burst`, `set_poll`, `waitsync`, `source_count`, `selectable_check`
+
+### Scenario: Adding a new NTP client backend requires no harness changes
+
+- **WHEN** a new NTP or PTP client library is introduced
+- **THEN** supporting it in `test_timectl` requires only: including its header, and filling in one new `ntp_ops_t` row that maps the same common function signatures (`init`, `cleanup`, `get_offset`, `get_system_time_offset`, `makestep`, `add_server`, `delete_server`, `set_poll`, `burst`, `online`, `has_selectable_source`, `get_source_count`, `waitsync`, `strerror`) to that backend's API
+- **AND** no changes are required to the command dispatch logic or to existing backend rows
+
+---
+
 ## Requirement: Selectable-Source and Source-Count Queries Are Distinct
 
 The library MUST let callers distinguish "no sources configured at all" from "sources configured but none selected yet."
