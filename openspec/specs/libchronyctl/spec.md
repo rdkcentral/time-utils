@@ -236,8 +236,8 @@ Every `chronyctl_*` function (except `chronyctl_cleanup()` and `chronyctl_strerr
 
 The library MUST NOT retain heap allocations, background threads, or open sockets between API calls.
 
-### Scenario: Static footprint bound
+### Scenario: Persistent mutable state bound
 
 - **WHEN** the library is linked into any process
-- **THEN** its only persistent state is the `chronyctl_initialized` flag and the atomic `chrony_sequence` counter (8 bytes total)
+- **THEN** its only persistent mutable state is the `chronyctl_initialized` flag and the atomic `chrony_sequence` counter
 - **AND** no background thread is created by `chronyctl_init()` or any data-plane call
