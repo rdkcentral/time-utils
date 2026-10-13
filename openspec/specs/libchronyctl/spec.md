@@ -14,7 +14,7 @@ Shows the exact sequence every `chronyctl_*` data-plane call follows, from socke
 
 ## Requirement: Library Must Be Initialized Before Use
 
-Every `chronyctl_*` function other than `chronyctl_init()` and `chronyctl_strerror()` MUST reject calls made before `chronyctl_init()` has run.
+Every `chronyctl_*` function other than `chronyctl_init()`, `chronyctl_cleanup()`, and `chronyctl_strerror()` MUST reject calls made before `chronyctl_init()` has run.
 
 ### Scenario: Call before init
 
