@@ -1,5 +1,3 @@
-time-utils
-
 Copyright 2026 Comcast Cable Communications Management, LLC
 
 http://www.apache.org/licenses/LICENSE-2.0
@@ -31,3 +29,7 @@ libchronyctl/chrony_protocol.h and libchronyctl/chrony_address.h were independen
 to describe that published binary protocol.  No source code was copied from the chrony project.
 (The presence of structurally similar protocol definitions, fields etc. is a necessary
 consequence of implementing a compatible client for the same binary wire format.)
+
+Material from OpenSpec is :
+Copyright (c) 2024 OpenSpec Contributors
+Licensed under the MIT License
